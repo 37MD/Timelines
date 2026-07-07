@@ -1,6 +1,7 @@
 {
   "name": "Timeline_1A",
   "short_name": "Timeline_1A",
+  "id": "https://37md.github.io/Timelines/",
   "description": "Indian equity index analysis: Nifty Scanner, Hilega-Milega chart engine, and Portfolio Snapshot.",
   "start_url": "./index.html",
   "scope": "./",

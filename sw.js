@@ -2,7 +2,7 @@
 // Caches the app shell (single-file HTML + manifest + icons) for offline use.
 // Bump CACHE_VERSION whenever index.html changes so clients pick up the
 // new file instead of serving a stale cached copy indefinitely.
-const CACHE_VERSION = 'timeline1a-v2';
+const CACHE_VERSION = 'timeline1a-v3';
 const APP_SHELL = [
   './',
   './index.html',
@@ -11,13 +11,17 @@ const APP_SHELL = [
   './icons/favicon.png',
   './icons/icon-180.png',
   './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icons/icon-512.png',
+  './icons/icon-maskable-192.png',
+  './icons/icon-maskable-512.png'
 ];
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL)).catch(() => {})
+    caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL)).catch((err) => {
+      console.warn('[SW] cache.addAll failed:', err);
+    })
   );
 });
 
