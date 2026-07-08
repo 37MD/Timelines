@@ -473,7 +473,7 @@ td.name-col{font-family:var(--sans);font-size:11px;font-weight:600;color:var(--t
 .ba-key-status{font-family:var(--mono);font-size:10px;color:var(--text-dim)}
 @media(max-width:600px){.ba-key-bar{padding:6px 10px;gap:6px}.ba-key-input{font-size:10px;padding:5px 8px;min-width:0}.ba-key-save{font-size:10px;padding:5px 10px;min-width:64px}}
 @media(max-width:768px){.app-header{padding:10px 12px}.main-wrap{padding:12px 8px}.table-wrap{max-height:calc(100vh - 130px)}}
-@media(max-width:600px){.app-header{padding:8px 10px}.app-header .brand-text p{display:none}.app-header .header-right .live-dot{font-size:9px}.brand{flex-shrink:0;flex-grow:1;min-width:0}.brand-text{min-width:0}.brand-text h1{white-space:nowrap;overflow:visible;text-overflow:clip;font-size:16px!important;letter-spacing:1px!important}.app-header .header-right{flex-shrink:1;min-width:0;overflow:hidden}.ld-toolbar{gap:6px;padding:6px 8px;flex-wrap:nowrap;overflow-x:auto}.ld-toolbar .ld-backup-btn{font-size:10px;padding:6px 8px;gap:3px}.ld-toolbar .ld-backup-label{display:none}.ld-toolbar .ld-scan-btn{font-size:11px;padding:6px 12px}.ld-toolbar #_deepProg{font-size:9px;padding:3px 8px}}
+@media(max-width:600px){.app-header{padding:8px 10px}.app-header .brand-text p{display:none}.app-header .header-right .live-dot{font-size:9px}.brand{flex-shrink:0;flex-grow:1;min-width:0}.brand-text{min-width:0}.brand-text h1{white-space:nowrap;overflow:visible;text-overflow:clip;font-size:16px!important;letter-spacing:1px!important}.app-header .header-right{flex-shrink:1;min-width:0;overflow:hidden}.ld-toolbar{gap:6px;padding:6px 8px;flex-wrap:wrap;overflow-x:visible}.ld-toolbar .ld-backup-btn{font-size:10px;padding:6px 8px;gap:3px}.ld-toolbar .ld-backup-label{display:none}.ld-toolbar .ld-scan-btn{font-size:11px;padding:6px 12px}.ld-toolbar #_deepProg{font-size:9px;padding:3px 8px}.ld-toolbar #_autoAlert{font-size:9px;padding:3px 8px;max-width:100%;overflow:hidden;text-overflow:ellipsis}}
 
 /* ── 2.8 Column Group Backgrounds ── */
 th[data-group="1"], td[data-group="1"]{background:rgba(180,180,180,0.08)}
@@ -954,6 +954,40 @@ th.ha-sep,td.ha-sep{border-left:3px solid var(--orange)!important}
 <!-- ── 3.2 Timeline Scanner Panel (React mount point, active by default) ── -->
 <div id="tab-scanner" class="tab-panel active">
 <div id="root"></div>
+<!-- ── NPS Scheme NAV list ── plain HTML table, separate from the React
+     scanner root above. Reads directly from the NPS IndexedDB cache
+     (DEEP_CACHE_KEY_NPS) via renderNPSTable(), independent of the React
+     scan state — so it shows whatever NPS data exists regardless of
+     whether a full Scanner run has happened this session. -->
+<div id="npsSection" style="margin-top:16px;border-top:2px solid var(--border2);padding-top:10px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:0 10px 6px;">
+    <span style="font-family:var(--mono);font-weight:700;font-size:13px;">NPS SCHEME NAVs</span>
+    <span id="npsSectionSummary" style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">—</span>
+  </div>
+  <div style="overflow-x:auto;">
+    <table style="width:100%;min-width:520px;border-collapse:collapse;font-family:var(--mono);font-size:11px;table-layout:fixed;">
+      <colgroup>
+        <col style="width:38%;">
+        <col style="width:16%;">
+        <col style="width:18%;">
+        <col style="width:14%;">
+        <col style="width:14%;">
+      </colgroup>
+      <thead>
+        <tr style="background:var(--green-dim);">
+          <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--border2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Scheme</th>
+          <th style="text-align:right;padding:5px 8px;border-bottom:1px solid var(--border2);white-space:nowrap;">Latest NAV</th>
+          <th style="text-align:right;padding:5px 8px;border-bottom:1px solid var(--border2);white-space:nowrap;">Date</th>
+          <th style="text-align:right;padding:5px 8px;border-bottom:1px solid var(--border2);white-space:nowrap;">1D Chg%</th>
+          <th style="text-align:right;padding:5px 8px;border-bottom:1px solid var(--border2);white-space:nowrap;">Rows</th>
+        </tr>
+      </thead>
+      <tbody id="npsTableBody">
+        <tr><td colspan="5" style="text-align:center;padding:14px;color:var(--text-dim);">No NPS data yet — run SCAN to download.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
 </div>
 
 <!-- ── 3.3 Hilega Panel (populated in Section 13 below) ── -->
@@ -964,36 +998,36 @@ th.ha-sep,td.ha-sep{border-left:3px solid var(--orange)!important}
   </div>
   <div style="display:flex;flex-direction:column;height:100vh;height:100dvh;background:#fff;">
     <!-- ── Controls (index picker, RSI/WMA/EMA lengths, period/timeframe, date range) ── -->
-    <div style="flex-shrink:0;padding:6px 8px 4px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid var(--border);background:var(--surface);">
+    <div style="flex-shrink:0;padding:4px 8px 3px;display:flex;flex-direction:column;gap:4px;border-bottom:1px solid var(--border);background:var(--surface);">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-        <select id="hmCatSelect" onchange="hmOnCatChange()" style="flex:0 0 150px;padding:5px 6px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;">
+        <select id="hmCatSelect" onchange="hmOnCatChange()" style="flex:0 0 150px;padding:4px 6px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;">
           <option value="">Category…</option>
         </select>
-        <select id="hmIndexSelect" onchange="hmOnIndexChange()" style="flex:1;min-width:120px;padding:5px 6px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;">
+        <select id="hmIndexSelect" onchange="hmOnIndexChange()" style="flex:1;min-width:120px;padding:4px 6px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;">
           <option value="">Select Index…</option>
         </select>
-        <select id="hmBenchSelect" onchange="drawHilegaMilega()" title="Pane 3 benchmark" style="flex:0 0 110px;padding:5px 6px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;">
+        <select id="hmBenchSelect" onchange="drawHilegaMilega()" title="Pane 3 benchmark" style="flex:0 0 110px;padding:4px 6px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;">
           <option value="nifty 50">RS vs Nifty 50</option>
           <option value="nifty 500">RS vs Nifty 500</option>
         </select>
       </div>
-      <div id="hmBtnRow" style="display:flex;justify-content:center;gap:0;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:3px 4px;flex-shrink:0;overflow-x:auto;">
-        <button class="hm-tf-btn hm-period-btn active" data-period="daily" onclick="setHmPeriod(this,'daily')" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:4px 7px;cursor:pointer;border-radius:4px;font-weight:700;white-space:nowrap;border-right:1px solid var(--border);">DAILY</button>
-        <button class="hm-tf-btn hm-period-btn" data-period="weekly" onclick="setHmPeriod(this,'weekly')" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:4px 7px;cursor:pointer;border-radius:4px;font-weight:700;white-space:nowrap;border-right:1px solid var(--border);">WEEKLY</button>
-        <button class="hm-tf-btn hm-period-btn" data-period="monthly" onclick="setHmPeriod(this,'monthly')" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:4px 7px;cursor:pointer;border-radius:4px;font-weight:700;white-space:nowrap;border-right:1px solid var(--border);">MONTHLY</button>
-        <button class="hm-tf-btn" data-days="90" onclick="setHmTf(this,90)" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:4px 7px;cursor:pointer;border-radius:4px;white-space:nowrap;">3M</button>
-        <button class="hm-tf-btn" data-days="180" onclick="setHmTf(this,180)" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:4px 7px;cursor:pointer;border-radius:4px;white-space:nowrap;">6M</button>
-        <button class="hm-tf-btn" data-days="365" onclick="setHmTf(this,365)" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:4px 7px;cursor:pointer;border-radius:4px;white-space:nowrap;">1Y</button>
-        <button class="hm-tf-btn" data-days="730" onclick="setHmTf(this,730)" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:4px 7px;cursor:pointer;border-radius:4px;white-space:nowrap;">2Y</button>
-        <button class="hm-tf-btn" data-days="1095" onclick="setHmTf(this,1095)" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:4px 7px;cursor:pointer;border-radius:4px;white-space:nowrap;">3Y</button>
-        <button class="hm-tf-btn" data-days="1825" onclick="setHmTf(this,1825)" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:4px 7px;cursor:pointer;border-radius:4px;white-space:nowrap;">5Y</button>
-        <button class="hm-tf-btn" data-days="3650" onclick="setHmTf(this,3650)" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:4px 7px;cursor:pointer;border-radius:4px;white-space:nowrap;">10Y</button>
+      <div id="hmBtnRow" style="display:flex;justify-content:center;gap:0;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:2px 4px;flex-shrink:0;overflow-x:auto;">
+        <button class="hm-tf-btn hm-period-btn active" data-period="daily" onclick="setHmPeriod(this,'daily')" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:3px 7px;cursor:pointer;border-radius:4px;font-weight:700;white-space:nowrap;border-right:1px solid var(--border);">DAILY</button>
+        <button class="hm-tf-btn hm-period-btn" data-period="weekly" onclick="setHmPeriod(this,'weekly')" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:3px 7px;cursor:pointer;border-radius:4px;font-weight:700;white-space:nowrap;border-right:1px solid var(--border);">WEEKLY</button>
+        <button class="hm-tf-btn hm-period-btn" data-period="monthly" onclick="setHmPeriod(this,'monthly')" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:3px 7px;cursor:pointer;border-radius:4px;font-weight:700;white-space:nowrap;border-right:1px solid var(--border);">MONTHLY</button>
+        <button class="hm-tf-btn" data-days="90" onclick="setHmTf(this,90)" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:3px 7px;cursor:pointer;border-radius:4px;white-space:nowrap;">3M</button>
+        <button class="hm-tf-btn" data-days="180" onclick="setHmTf(this,180)" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:3px 7px;cursor:pointer;border-radius:4px;white-space:nowrap;">6M</button>
+        <button class="hm-tf-btn" data-days="365" onclick="setHmTf(this,365)" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:3px 7px;cursor:pointer;border-radius:4px;white-space:nowrap;">1Y</button>
+        <button class="hm-tf-btn" data-days="730" onclick="setHmTf(this,730)" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:3px 7px;cursor:pointer;border-radius:4px;white-space:nowrap;">2Y</button>
+        <button class="hm-tf-btn" data-days="1095" onclick="setHmTf(this,1095)" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:3px 7px;cursor:pointer;border-radius:4px;white-space:nowrap;">3Y</button>
+        <button class="hm-tf-btn" data-days="1825" onclick="setHmTf(this,1825)" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:3px 7px;cursor:pointer;border-radius:4px;white-space:nowrap;">5Y</button>
+        <button class="hm-tf-btn" data-days="3650" onclick="setHmTf(this,3650)" style="background:transparent;border:none;color:#888;font-family:var(--mono);font-size:11px;padding:3px 7px;cursor:pointer;border-radius:4px;white-space:nowrap;">10Y</button>
       </div>
       <div id="hmBtnHint" style="display:none;font-size:9px;color:#aaa;text-align:center;margin-top:-2px;"></div>
     </div>
 
     <!-- ── PANE 1: Price/NAV + SMA(8) low, with HUD ── -->
-    <div id="hmPane1Wrap" style="width:100%;height:34vh;height:34dvh;min-height:150px;flex-shrink:0;position:relative;border-bottom:1px solid var(--border);background:#fff;">
+    <div id="hmPane1Wrap" style="width:100%;height:30vh;height:30dvh;min-height:140px;flex-shrink:0;position:relative;border-bottom:1px solid var(--border);background:#fff;">
       <canvas id="hmPane1Canvas"></canvas>
       <div id="hmHud1" style="display:none;position:absolute;pointer-events:none;background:rgba(255,255,255,0.92);border:1px solid #ccc;border-radius:4px;padding:3px 6px;font-family:monospace;font-size:8px;line-height:1.4;color:#000;box-shadow:1px 1px 6px rgba(0,0,0,0.1);z-index:10;white-space:normal;top:2px;left:2px;max-width:70%;box-sizing:border-box;"></div>
       <div id="hmNoDataBanner" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;flex-direction:column;gap:10px;background:#fff;text-align:center;padding:16px;z-index:20;">
@@ -1003,14 +1037,14 @@ th.ha-sep,td.ha-sep{border-left:3px solid var(--orange)!important}
     </div>
 
     <!-- ── PANE 2: Hilega-Milega (RSI/WMA/EMA), with HUD ── -->
-    <div id="hmPane2Wrap" style="width:100%;height:30vh;height:30dvh;min-height:130px;flex-shrink:0;position:relative;border-bottom:1px solid var(--border);background:#fff;">
+    <div id="hmPane2Wrap" style="width:100%;height:26vh;height:26dvh;min-height:120px;flex-shrink:0;position:relative;border-bottom:1px solid var(--border);background:#fff;">
       <div style="position:absolute;top:2px;left:2px;font-size:9px;color:#888;z-index:11;background:rgba(255,255,255,0.85);padding:1px 4px;border-radius:3px;">Hilega-Milega</div>
       <canvas id="hmPane2Canvas"></canvas>
       <div id="hmHud2" style="display:none;position:absolute;pointer-events:none;background:rgba(255,255,255,0.92);border:1px solid #ccc;border-radius:4px;padding:3px 6px;font-family:monospace;font-size:8px;line-height:1.4;color:#000;box-shadow:1px 1px 6px rgba(0,0,0,0.1);z-index:10;white-space:normal;top:2px;left:2px;text-align:left;max-width:70%;box-sizing:border-box;"></div>
     </div>
 
     <!-- ── PANE 3: Relative Strength vs benchmark, with HUD ── -->
-    <div id="hmPane3Wrap" style="width:100%;height:22vh;height:22dvh;min-height:100px;flex-shrink:0;position:relative;background:#fff;">
+    <div id="hmPane3Wrap" style="width:100%;height:19vh;height:19dvh;min-height:90px;flex-shrink:0;position:relative;background:#fff;">
       <div style="position:absolute;top:2px;left:2px;font-size:9px;color:#888;z-index:11;background:rgba(255,255,255,0.85);padding:1px 4px;border-radius:3px;" id="hmPane3Label">RS vs Nifty 50</div>
       <canvas id="hmPane3Canvas"></canvas>
       <div id="hmHud3" style="display:none;position:absolute;pointer-events:none;background:rgba(255,255,255,0.92);border:1px solid #ccc;border-radius:4px;padding:3px 6px;font-family:monospace;font-size:8px;line-height:1.4;color:#000;box-shadow:1px 1px 6px rgba(0,0,0,0.1);z-index:10;white-space:normal;top:2px;left:2px;text-align:left;max-width:70%;box-sizing:border-box;"></div>
@@ -1534,9 +1568,27 @@ function _ldLoadDeepCacheForBackup() {
   });
 }
 
+// Reads the NPS scheme NAV cache straight from IndexedDB — same rationale
+// as _ldLoadDeepCacheForBackup above: this data only lives in IDB (via
+// _npsSaveCache), never localStorage, so it must be loaded explicitly here
+// or every backup/restore silently drops all downloaded NPS history even
+// though the download itself succeeded.
+function _ldLoadNPSCacheForBackup() {
+  return new Promise(function(resolve) {
+    if (typeof window._idbGet !== 'function' && typeof _npsLoadCache !== 'function') { resolve(null); return; }
+    try {
+      _npsLoadCache(function(cache) {
+        if (cache && cache.npsMap && Object.keys(cache.npsMap).length > 0) resolve(cache);
+        else resolve(null);
+      });
+    } catch (e) { resolve(null); }
+  });
+}
+
 async function ldBuildBackupPayload() {
   const dump = BB.getAll();
   const deepCache = await _ldLoadDeepCacheForBackup();
+  const npsCache = await _ldLoadNPSCacheForBackup();
   return {
     __ldBackup: true,
     app: 'Nifty Index Scanner',
@@ -1546,7 +1598,13 @@ async function ldBuildBackupPayload() {
     data: dump,
     // Separate top-level field (not part of `data`/localStorage dump) since
     // it comes from IndexedDB and is restored via a different code path.
-    deepCache: deepCache
+    deepCache: deepCache,
+    // Same rationale as deepCache above — NPS scheme NAV history lives in
+    // its own IndexedDB container (DEEP_CACHE_KEY_NPS), separate from the
+    // NSE dailyMap/weeklyMap/monthlyMap. Without this, a backup/restore
+    // cycle would silently lose all downloaded NPS data even on a
+    // successful NPS fetch, since nothing ever asked IndexedDB for it.
+    npsCache: npsCache
   };
 }
 
@@ -1647,6 +1705,23 @@ async function ldApplyBackupJson(text) {
         console.warn('[LD] deep cache restore failed', e);
       }
     }
+    // NPS scheme NAV history — same rationale as deepCache above: it lives
+    // in its own IndexedDB container, so it needs its own explicit restore
+    // step. Without this, a restored session would show the deep NSE
+    // history back but always start NPS from empty again, even if a prior
+    // session's NPS download had genuinely succeeded and was included in
+    // the backup file via _ldLoadNPSCacheForBackup.
+    let npsRestored = false;
+    if (parsed && parsed.npsCache && parsed.npsCache.npsMap
+        && Object.keys(parsed.npsCache.npsMap).length > 0
+        && typeof _npsSaveCache === 'function') {
+      try {
+        await _npsSaveCache(parsed.npsCache);
+        npsRestored = true;
+      } catch (e) {
+        console.warn('[LD] NPS cache restore failed', e);
+      }
+    }
     if (restoreResult.failed.length > 0) {
       // At least one key didn't fit (most likely storage quota) — say so
       // explicitly instead of quietly reporting a lower count with no
@@ -1654,7 +1729,7 @@ async function ldApplyBackupJson(text) {
       console.warn('[LD] Backup restore: these keys failed to save:', restoreResult.failed);
       ldShowBackupMsg(`⚠ Restored ${restoreResult.restored} keys, but ${restoreResult.failed.length} failed (storage full?) — see console for which ones. Reloading…`, true);
     } else {
-      ldShowBackupMsg(`✓ Restored ${restoreResult.restored} keys${deepRestored ? ' + deep history' : ''} — reloading…`);
+      ldShowBackupMsg(`✓ Restored ${restoreResult.restored} keys${deepRestored ? ' + deep history' : ''}${npsRestored ? ' + NPS data' : ''} — reloading…`);
     }
     // Short delay here is now just so the message above is visible for a
     // moment — the actual save is already guaranteed complete by the
@@ -1876,6 +1951,44 @@ var DD = (function() {
   var YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/';
   var GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/';
   var NPS_HISTORICAL_URL = 'https://npsnav.in/api/historical/';
+  // Real NPS scheme codes, ported from the working NPS-Clues_1F reference
+  // app's amcFunds table (8 AMCs × 4 schemes: Equity/Corporate-bond ×
+  // Tier I/II). The earlier placeholder list here (SM008001-4, invented as
+  // an example format) was never real beyond SM008001 coincidentally
+  // matching HDFC Scheme E - Tier I — every other placeholder code 404'd,
+  // which combined with a response-parsing bug to make NPS downloads
+  // silently no-op. Extend/replace this list as needed.
+  var NPS_DEFAULT_CODES = [
+    'SM008001', 'SM008002', 'SM008004', 'SM008005', // HDFC
+    'SM007001', 'SM007002', 'SM007004', 'SM007005', // ICICI
+    'SM005001', 'SM005002', 'SM005004', 'SM005005', // KOTAK
+    'SM010001', 'SM010002', 'SM010005', 'SM010006', // ABSL
+    'SM001001', 'SM001002', 'SM001004', 'SM001005', // SBI
+    'SM009001', 'SM009002', 'SM009004', 'SM009005', // TATA
+    'SM011001', 'SM011002', 'SM011004', 'SM011005', // AXIS
+    'SM012001', 'SM012002', 'SM012004', 'SM012005'  // DSP
+  ];
+  // Human-readable names for the codes above, keyed by code — useful for
+  // progress labels and any future UI listing. Mirrors amcFunds' name
+  // strings from NPS-Clues_1F.
+  var NPS_SCHEME_NAMES = {
+    'SM008001': '[NPS] HDFC Scheme E - Tier I',   'SM008002': '[NPS] HDFC Scheme C - Tier I',
+    'SM008004': '[NPS] HDFC Scheme E - Tier II',  'SM008005': '[NPS] HDFC Scheme C - Tier II',
+    'SM007001': '[NPS] ICICI Scheme E - Tier I',  'SM007002': '[NPS] ICICI Scheme C - Tier I',
+    'SM007004': '[NPS] ICICI Scheme E - Tier II', 'SM007005': '[NPS] ICICI Scheme C - Tier II',
+    'SM005001': '[NPS] KOTAK Scheme E - Tier I',  'SM005002': '[NPS] KOTAK Scheme C - Tier I',
+    'SM005004': '[NPS] KOTAK Scheme E - Tier II', 'SM005005': '[NPS] KOTAK Scheme C - Tier II',
+    'SM010001': '[NPS] ABSL Scheme E - Tier I',   'SM010002': '[NPS] ABSL Scheme C - Tier I',
+    'SM010005': '[NPS] ABSL Scheme E - Tier II',  'SM010006': '[NPS] ABSL Scheme C - Tier II',
+    'SM001001': '[NPS] SBI Scheme E - Tier I',    'SM001002': '[NPS] SBI Scheme C - Tier I',
+    'SM001004': '[NPS] SBI Scheme E - Tier II',   'SM001005': '[NPS] SBI Scheme C - Tier II',
+    'SM009001': '[NPS] TATA Scheme E - Tier I',   'SM009002': '[NPS] TATA Scheme C - Tier I',
+    'SM009004': '[NPS] TATA Scheme E - Tier II',  'SM009005': '[NPS] TATA Scheme C - Tier II',
+    'SM011001': '[NPS] AXIS Scheme E - Tier I',   'SM011002': '[NPS] AXIS Scheme C - Tier I',
+    'SM011004': '[NPS] AXIS Scheme E - Tier II',  'SM011005': '[NPS] AXIS Scheme C - Tier II',
+    'SM012001': '[NPS] DSP Scheme E - Tier I',    'SM012002': '[NPS] DSP Scheme C - Tier I',
+    'SM012004': '[NPS] DSP Scheme E - Tier II',   'SM012005': '[NPS] DSP Scheme C - Tier II'
+  };
 
   // ── Generic fetch via CORS proxy rotation ──
   // Tries each proxy in order, returns first successful Response.
@@ -2022,26 +2135,76 @@ var DD = (function() {
     function fetchHistory(code, opts) {
       var timeout = (opts && opts.timeout) || 12000;
       var url = NPS_HISTORICAL_URL + code;
-      var ctrl = new AbortController();
-      var tid = setTimeout(function() { ctrl.abort(); }, timeout);
-      return fetch(url, { signal: ctrl.signal }).then(function(res) {
+      // NOTE: deliberately NOT using AbortController/AbortSignal here. In
+      // this environment, something (Shields/an extension/an internal
+      // relay) intercepts fetch() and tries to structurally clone its
+      // options via window.postMessage — and AbortSignal is not
+      // structured-cloneable, so passing { signal } throws immediately with
+      // "AbortSignal object could not be cloned", failing every single
+      // request before it ever reaches the network. A plain Promise.race
+      // against a timeout achieves the same "give up after N ms" behavior
+      // without needing an abortable signal at all — the underlying fetch
+      // is left to resolve/reject on its own, but its result is simply
+      // ignored if the timeout wins the race first.
+      var fetchPromise = fetch(url).then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.json();
-      }).then(function(json) {
-        clearTimeout(tid);
-        var rows = json && json.data;
-        if (!Array.isArray(rows)) return [];
-        return rows.map(function(r) {
+      });
+      var timeoutPromise = new Promise(function(_, reject) {
+        setTimeout(function() { reject(new Error('timeout after ' + timeout + 'ms')); }, timeout);
+      });
+      return Promise.race([fetchPromise, timeoutPromise]).then(function(json) {
+        // npsnav.in has been observed returning either a bare array or a
+        // {data:[...]} wrapper — the working NPS-Clues_1F reference
+        // implementation handles both (see its fetchFundData), so match
+        // that here rather than assuming only the wrapped shape. Assuming
+        // only json.data silently returned [] for every real scheme code
+        // whenever the API responded with a bare array instead.
+        var rows = Array.isArray(json) ? json : (json && Array.isArray(json.data) ? json.data : null);
+        if (!rows) { console.warn('[NPS] unexpected response shape for', code, json); return []; }
+        var parsed = rows.map(function(r) {
           return { date: r.date, nav: parseFloat(r.nav) };
-        }).filter(function(r) { return !isNaN(r.nav); });
-      }).catch(function() {
-        clearTimeout(tid);
+        }).filter(function(r) { return !isNaN(r.nav) && r.nav > 0; });
+        if (parsed.length === 0) console.warn('[NPS]', code, 'returned 0 usable rows from', rows.length, 'raw rows');
+        return parsed;
+      }).catch(function(err) {
+        console.warn('[NPS] fetch failed for', code, '—', err && err.message ? err.message : err);
         return [];
       });
     }
 
+    // ── Fetch multiple schemes' histories in sequence ──
+    // codes: array of scheme codes (defaults to NPS_DEFAULT_CODES).
+    // onProgress(doneN, totalN, code): optional progress callback.
+    // Sequential (not parallel) — npsnav.in is a single friendly origin,
+    // so a small delay between calls avoids hammering it, similar in
+    // spirit to DEEP_BATCH_DELAY for the NSE CSV downloads.
+    // Returns { code: [{date,nav}, ...], ... } — codes that failed simply
+    // map to [] (fetchHistory never throws), so a bad/renamed scheme code
+    // doesn't abort the whole batch.
+    function fetchAllHistories(codes, onProgress) {
+      var list = (codes && codes.length) ? codes : NPS_DEFAULT_CODES;
+      var out = {};
+      var i = 0;
+      function next() {
+        if (i >= list.length) return Promise.resolve(out);
+        var code = list[i];
+        return fetchHistory(code).then(function(rows) {
+          out[code] = rows;
+          i++;
+          if (onProgress) onProgress(i, list.length, code);
+          return new Promise(function(res) { setTimeout(res, 150); }).then(next);
+        });
+      }
+      return next();
+    }
+
     return {
       _url: NPS_HISTORICAL_URL,
-      fetchHistory: fetchHistory
+      _defaultCodes: NPS_DEFAULT_CODES,
+      _schemeNames: NPS_SCHEME_NAMES,
+      fetchHistory: fetchHistory,
+      fetchAllHistories: fetchAllHistories
     };
   })();
 
@@ -3088,6 +3251,20 @@ Reasoning: [One-line explanation tying data to the rule]`;
       // file — it never updates on its own, so we only fall back to it if a
       // live fetch genuinely can't produce anything.
       try {
+        // NPS runs FIRST — it's a handful of small single-call fetches
+        // (no CORS proxy rotation, no chunking) vs. the NSE daily download's
+        // up to 84 chunks, so it finishes fast and is safely persisted to
+        // its own IndexedDB container even if the NSE download that follows
+        // gets interrupted (backgrounded tab, screen lock, etc.).
+        if (typeof window.fetchDeepNPSHistory === 'function') {
+          setProgress({ done: 0, total: 1, label: 'Fetching NPS scheme NAVs…' });
+          try {
+            await window.fetchDeepNPSHistory(null, (doneN, totalN, code) => {
+              var schemeName = (DD.NPS._schemeNames && DD.NPS._schemeNames[code]) || code;
+              setProgress({ done: doneN, total: totalN, label: `NPS NAVs: ${doneN}/${totalN} (${schemeName})` });
+            });
+          } catch (_) { /* NPS failure must never block the NSE download below */ }
+        }
         setProgress({ done: 0, total: 1, label: 'Fetching live closing prices…' });
         if (typeof window.fetchDeepWeeklyHistory === 'function') {
           deepCache = await window.fetchDeepWeeklyHistory((doneN, totalN) => {
@@ -4712,6 +4889,33 @@ async function ptRunScan(){
     row.change=pm.change||0;
     ptAllComputedRows.push(row);
   }
+
+  // Step 3b: Add NPS scheme NAVs into the SAME computed-rows pipeline as
+  // NSE indices, using ptComputeRow unchanged — a NAV time series is just
+  // as valid an input as a price series for RSI/WMA/Regime math, so no
+  // NPS-specific scoring logic is needed. Reads straight from the NPS
+  // IndexedDB cache (independent of priceMap/dailyMap above, since NPS has
+  // no NSE "live price" feed) and merges into ptAllComputedRows so these
+  // rows appear in the main index list/table with every column populated,
+  // rather than in a separate section with most columns blank.
+  try {
+    var npsCache = await new Promise(function(res) { _npsLoadCache(res); });
+    var npsMap = (npsCache && npsCache.npsMap) || {};
+    Object.keys(npsMap).forEach(function(code) {
+      var navRows = npsMap[code]; // newest-first: [{date, nav}, ...]
+      if (!navRows || navRows.length < 20) return;
+      // ptComputeRow expects closes oldest-first (matches how NSE dailyMap
+      // closes are built above), so reverse the newest-first NAV array.
+      var closes = navRows.slice().reverse().map(function(r) { return r.nav; });
+      var schemeName = (DD.NPS._schemeNames && DD.NPS._schemeNames[code]) || code;
+      var row = ptComputeRow(closes, schemeName);
+      if (!row) return;
+      // 1-day change: latest NAV vs previous NAV (navRows[0] is newest)
+      var prev = navRows[1];
+      row.change = (prev && prev.nav > 0) ? Math.round(((navRows[0].nav - prev.nav) / prev.nav * 100) * 100) / 100 : 0;
+      ptAllComputedRows.push(row);
+    });
+  } catch (e) { console.warn('[NPS] failed to merge into scanner rows:', e); }
   var count=ptApplyHiddenFilter();
   ptEl('pt-st').textContent=(usedDeepCache?'[Data Engine]':'[NSE]')+' '+count+' indices scanned';
   ptEl('pt-ts').textContent=new Date().toLocaleString();
@@ -5310,6 +5514,7 @@ var DEEP_CACHE_KEY = 'ld_deep_weekly_history_v4'; // legacy combined key — rea
 var DEEP_CACHE_KEY_DAILY   = 'ld_deep_daily_v1';   // { lastDate, dailyMap }
 var DEEP_CACHE_KEY_WEEKLY  = 'ld_deep_weekly_v1';  // { weeklyMap }
 var DEEP_CACHE_KEY_MONTHLY = 'ld_deep_monthly_v1'; // { monthlyMap }
+var DEEP_CACHE_KEY_NPS     = 'ld_deep_nps_v1';      // { lastUpdated, npsMap }
 var DEEP_WINDOW_DAYS = 2500; // ~10 years of trading days
 var DEEP_BATCH_SIZE = 30;    // days per chunk — chunks auto-chain until all gap days are fetched
 var DEEP_BATCH_DELAY = 500; // ms between individual fetches — reduced for speed
@@ -5462,6 +5667,125 @@ function deepSaveCache(cache){
   var p2 = _idbPut(DEEP_CACHE_KEY_WEEKLY,  { weeklyMap: cache.weeklyMap || {} });
   var p3 = _idbPut(DEEP_CACHE_KEY_MONTHLY, { monthlyMap: cache.monthlyMap || {} });
   return Promise.all([p1, p2, p3]);
+}
+
+// ── 11.4b NPS Cache (Container DD sub-container) ──
+// Mirrors the daily/weekly/monthly cache pattern above, but far simpler:
+// npsnav.in returns a scheme's FULL history in one call (no chunking, no
+// gap-day math), so this just merges the freshly-fetched rows into
+// whatever's already cached, dedupes by date, and slices to the same
+// DEEP_WINDOW_DAYS window used everywhere else in Container DD.
+// Runs as the FIRST step of a scan (before the long NSE daily download)
+// because it's small and fast — a handful of scheme codes vs. up to 84
+// chunks of CSV fetches — so it finishes and is safely persisted even if
+// the NSE download that follows gets interrupted (e.g. backgrounded on
+// mobile, screen lock, tab closed).
+function _npsLoadCache(cb) {
+  _idbGet(DEEP_CACHE_KEY_NPS, function(data) {
+    if (data && data.npsMap) { cb(data); return; }
+    cb({ lastUpdated: null, npsMap: {} });
+  });
+}
+
+function _npsSaveCache(cache) {
+  return _idbPut(DEEP_CACHE_KEY_NPS, { lastUpdated: cache.lastUpdated, npsMap: cache.npsMap });
+}
+
+// Merge freshly-fetched rows for one scheme code into the existing map:
+// dedupe by date (existing entries win ties, since npsnav.in's own data
+// for a given date shouldn't change), then re-sort newest-first and slice
+// to DEEP_WINDOW_DAYS — same convention as the NSE dailyMap slicing.
+function _npsMergeScheme(existingRows, freshRows) {
+  var byDate = {};
+  (existingRows || []).forEach(function(r) { byDate[r.date] = r; });
+  (freshRows || []).forEach(function(r) { byDate[r.date] = r; }); // fresh wins if both present
+  var merged = Object.keys(byDate).map(function(d) { return byDate[d]; });
+  // Sort newest-first using DD-MM-YYYY → sortable YYYYMMDD key
+  merged.sort(function(a, b) {
+    var ka = a.date.split('-').reverse().join('');
+    var kb = b.date.split('-').reverse().join('');
+    return ka < kb ? 1 : ka > kb ? -1 : 0;
+  });
+  if (merged.length > DEEP_WINDOW_DAYS) merged = merged.slice(0, DEEP_WINDOW_DAYS);
+  return merged;
+}
+
+// Public entry point — call this before fetchDeepWeeklyHistory in the scan
+// flow. codes: optional array of scheme codes (defaults to
+// DD.NPS._defaultCodes). onProgress(doneN, totalN, code): optional.
+// Returns the updated { lastUpdated, npsMap } cache object.
+async function fetchDeepNPSHistory(codes, onProgress) {
+  var cache = await new Promise(function(res) { _npsLoadCache(res); });
+  var list = (codes && codes.length) ? codes : DD.NPS._defaultCodes;
+  var fresh = await DD.NPS.fetchAllHistories(list, onProgress);
+  var okCount = 0, emptyCount = 0;
+  list.forEach(function(code) {
+    var rows = fresh[code];
+    if (rows && rows.length > 0) okCount++; else emptyCount++;
+    cache.npsMap[code] = _npsMergeScheme(cache.npsMap[code], rows);
+  });
+  cache.lastUpdated = deepFmtDate(new Date());
+  await _npsSaveCache(cache);
+  console.log('[NPS] fetch complete —', okCount, 'schemes with data,', emptyCount, 'empty/failed, out of', list.length, 'total');
+  if (typeof window.renderNPSTable === 'function') window.renderNPSTable();
+  return cache;
+}
+
+// ── Render the NPS scheme NAV list in the Scanner tab ──
+// Reads straight from IndexedDB (via _npsLoadCache) — deliberately
+// independent of React scan state, so it shows whatever NPS data exists
+// regardless of whether the main Scanner has run this session. Safe to
+// call any time (tab load, after a scan, or manually from console).
+function renderNPSTable() {
+  var tbody = document.getElementById('npsTableBody');
+  var summary = document.getElementById('npsSectionSummary');
+  if (!tbody) return;
+  _npsLoadCache(function(cache) {
+    var npsMap = (cache && cache.npsMap) || {};
+    var codes = Object.keys(npsMap).filter(function(c) { return npsMap[c] && npsMap[c].length > 0; });
+    if (codes.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:14px;color:var(--text-dim);">No NPS data yet — run SCAN to download.</td></tr>';
+      if (summary) summary.textContent = '—';
+      return;
+    }
+    // Sort by scheme name for stable, readable ordering
+    codes.sort(function(a, b) {
+      var na = (DD.NPS._schemeNames && DD.NPS._schemeNames[a]) || a;
+      var nb = (DD.NPS._schemeNames && DD.NPS._schemeNames[b]) || b;
+      return na < nb ? -1 : na > nb ? 1 : 0;
+    });
+    var rowsHtml = codes.map(function(code) {
+      var rows = npsMap[code]; // newest-first
+      var latest = rows[0];
+      var prev = rows[1];
+      var chg = (prev && prev.nav > 0) ? ((latest.nav - prev.nav) / prev.nav * 100) : null;
+      var chgColor = chg == null ? 'var(--text-dim)' : (chg >= 0 ? 'var(--green)' : 'var(--red)');
+      var chgText = chg == null ? '—' : (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
+      var fullName = (DD.NPS._schemeNames && DD.NPS._schemeNames[code]) || code;
+      // Strip the redundant "[NPS] " prefix for display (the section
+      // header already says "NPS Scheme NAVs") — recovers width for the
+      // AMC/scheme/tier text that actually distinguishes rows from each
+      // other, which is what was getting clipped/wrapped before.
+      var shortName = fullName.replace(/^\[NPS\]\s*/, '');
+      return '<tr style="border-bottom:1px solid var(--border);">' +
+        '<td style="padding:4px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + fullName.replace(/"/g,'&quot;') + '">' + shortName + '</td>' +
+        '<td style="padding:4px 8px;text-align:right;white-space:nowrap;">' + latest.nav.toFixed(4) + '</td>' +
+        '<td style="padding:4px 8px;text-align:right;white-space:nowrap;">' + latest.date + '</td>' +
+        '<td style="padding:4px 8px;text-align:right;white-space:nowrap;color:' + chgColor + ';">' + chgText + '</td>' +
+        '<td style="padding:4px 8px;text-align:right;white-space:nowrap;">' + rows.length + '</td>' +
+        '</tr>';
+    }).join('');
+    tbody.innerHTML = rowsHtml;
+    if (summary) summary.textContent = codes.length + ' of ' + Object.keys(npsMap).length + ' schemes' + (cache.lastUpdated ? ' · updated ' + cache.lastUpdated : '');
+  });
+}
+window.renderNPSTable = renderNPSTable;
+// Populate on initial page load too, in case NPS data already exists from
+// a previous session — don't wait for a fresh scan to show it.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function() { renderNPSTable(); });
+} else {
+  renderNPSTable();
 }
 
 // ── 11.5 Toolbar Progress (next to SCAN button) ──────────────────────────────
@@ -6765,6 +7089,8 @@ win._idbPut = _idbPut;
 win.DEEP_CACHE_KEY_DAILY = DEEP_CACHE_KEY_DAILY;
 win.DEEP_CACHE_KEY_WEEKLY = DEEP_CACHE_KEY_WEEKLY;
 win.DEEP_CACHE_KEY_MONTHLY = DEEP_CACHE_KEY_MONTHLY;
+win.fetchDeepNPSHistory = fetchDeepNPSHistory;
+win.DEEP_CACHE_KEY_NPS = DEEP_CACHE_KEY_NPS;
 // ── Auto-refresh on page load ─────────────────────────────────────────────
 // Check cache staleness and trigger background update if needed.
 // Ensures daily/weekly/monthly data stays fresh without manual scan.
@@ -6775,7 +7101,7 @@ function _showAutoAlert(msg, type) {
   if (!el) {
     el = document.createElement('span');
     el.id = '_autoAlert';
-    el.style.cssText = 'font-family:var(--mono);font-size:11px;font-weight:700;padding:5px 12px;border-radius:6px;white-space:nowrap;opacity:0;transition:opacity .4s;margin-left:auto;';
+    el.style.cssText = 'font-family:var(--mono);font-size:11px;font-weight:700;padding:5px 12px;border-radius:6px;white-space:nowrap;opacity:0;transition:opacity .4s;margin-left:auto;flex-shrink:0;';
     var tb = document.querySelector('.ld-toolbar');
     if (tb) tb.appendChild(el);
     else document.body.appendChild(el);
@@ -6952,6 +7278,14 @@ async function hmPopulateIndexDropdown() {
     var d = dm[idx.key] || dm[idx.name.toLowerCase()];
     if (!d || d.length < 10) return;
     var cat = idx.nseKey || 'Other';
+    // Defensive cross-check against the master dataset — see matching
+    // comment in hmUpdateIdxDropdown for why this exists. Use the
+    // authoritative category when the tagged one disagrees, rather than
+    // dropping the index or trusting a possibly-stale upstream tag.
+    if (typeof U !== 'undefined' && typeof U.categoryForKey === 'function') {
+      var trueCat = U.categoryForKey(U.normalize(idx.name));
+      if (trueCat && trueCat !== 'Other') cat = trueCat;
+    }
     if (!groups[cat]) groups[cat] = [];
     groups[cat].push(idx);
   });
@@ -6993,23 +7327,42 @@ function hmUpdateIdxDropdown() {
   if (!sd || !sd.indexList) return;
   var dm = sd.dailyMap || {};
   var cat = catSel.value;
-  var prevVal = idxSel.value;
   idxSel.innerHTML = '<option value="">' + (cat ? 'Select ' + cat + ' Index…' : 'Select Index…') + '</option>';
   if (!cat) return;
   var matched = [];
   sd.indexList.forEach(function(idx) {
     if ((idx.nseKey || 'Other') !== cat) return;
+    // Defensive cross-check: some upstream paths that build sd.indexList
+    // (live scan restore, IDB-key fallback) have historically produced a
+    // stale or wrong nseKey for a given index — Nifty 500 wrongly tagged
+    // under a Sectoral category was seen in practice. Since U.categoryForKey
+    // looks up the authoritative category straight from the master dataset
+    // by name, use it as a second check: only accept a match if the master
+    // data agrees this index truly belongs in the currently-selected
+    // category. This prevents a corrupted indexList from ever populating an
+    // index under the wrong category's dropdown, regardless of which
+    // upstream path produced the bad tag.
+    if (typeof U !== 'undefined' && typeof U.categoryForKey === 'function') {
+      var trueCat = U.categoryForKey(U.normalize(idx.name));
+      if (trueCat && trueCat !== 'Other' && trueCat !== cat) return;
+    }
     var d = dm[idx.key] || dm[idx.name.toLowerCase()];
     if (!d || d.length < 10) return;
     matched.push(idx);
   });
   matched.sort(function(a,b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
+  // NOTE: deliberately does NOT try to preserve the previously-selected index
+  // key across a category change. An index key from the old category can
+  // coincidentally match a different index's key in the new category, which
+  // would silently select and plot the wrong fund while showing an unrelated
+  // name — the exact Category/Index desync bug this replaces. The dropdown
+  // always resets to "Select … Index…" on category change; hmOnCatChange's
+  // no-selection branch already handles clearing the chart cleanly.
   matched.forEach(function(idx) {
     var opt = document.createElement('option');
     opt.value = idx.key;
     opt.textContent = idx.name;
     opt.dataset.name = idx.name;
-    if (idx.key === prevVal) opt.selected = true;
     idxSel.appendChild(opt);
   });
 }
@@ -7022,7 +7375,17 @@ function hmOnCatChange() {
   if (idxSel && idxSel.value) {
     hmOnIndexChange();
   } else {
-    // No index selected — redraw canvas with message or clear
+    // No index selected — redraw canvas with message or clear.
+    // Also clear the PERSISTED key (not just the dropdown's displayed
+    // value) — otherwise the tab-open/restore logic (which re-reads
+    // BB.hmIndexKey() from localStorage every time this tab becomes
+    // active, not just once per session) will silently reassert this
+    // stale key the next time the tab opens or re-renders, overwriting
+    // the category the user just deliberately chose. This was the root
+    // cause of the category/index pairing reverting after a manual
+    // category change even survived a hard reset — the key persists in
+    // localStorage independent of any in-memory reset.
+    BB.hmIndexKey('');
     ['hmPane1Canvas', 'hmPane2Canvas', 'hmPane3Canvas'].forEach(function(id) {
       var canvas = document.getElementById(id);
       if (canvas) { var ctx = canvas.getContext('2d'); if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height); }
@@ -7728,8 +8091,24 @@ async function drawHilegaMilega() {
           var cW = W - pad.l - pad.r, cH = H - pad.t - pad.b;
           var allVals = [];
           paneCfg.series.forEach(function(s) { s.data.forEach(function(v) { if (v != null && !isNaN(v)) allVals.push(v); }); });
-          var yMin = paneCfg.yMin != null ? paneCfg.yMin : (allVals.length ? Math.min.apply(null, allVals) : 0);
-          var yMax = paneCfg.yMax != null ? paneCfg.yMax : (allVals.length ? Math.max.apply(null, allVals) : 1);
+          var yMin, yMax;
+          if (paneCfg.yMin != null || paneCfg.yMax != null) {
+            yMin = paneCfg.yMin != null ? paneCfg.yMin : (allVals.length ? Math.min.apply(null, allVals) : 0);
+            yMax = paneCfg.yMax != null ? paneCfg.yMax : (allVals.length ? Math.max.apply(null, allVals) : 1);
+          } else if (paneCfg.percentileScale && allVals.length > 4) {
+            // Percentile-based autoscale: clips extreme outlier stretches (e.g. a
+            // single sharp early spike/drop in a ratio series) so they don't
+            // stretch the whole y-axis and flatten the more recent, more
+            // relevant data into a thin band. Uses 5th/95th percentile of all
+            // visible values instead of raw min/max.
+            var sorted = allVals.slice().sort(function(a, b) { return a - b; });
+            var loIdx = Math.floor(sorted.length * 0.05);
+            var hiIdx = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95));
+            yMin = sorted[loIdx]; yMax = sorted[hiIdx];
+          } else {
+            yMin = allVals.length ? Math.min.apply(null, allVals) : 0;
+            yMax = allVals.length ? Math.max.apply(null, allVals) : 1;
+          }
           if (yMax === yMin) { yMax += 1; yMin -= 1; }
           var yPad = (yMax - yMin) * 0.08;
           yMin -= yPad; yMax += yPad;
@@ -7817,6 +8196,7 @@ async function drawHilegaMilega() {
             { data: rsHMA, color: '#9ca3af', width: 1.5 }
           ],
           hLines: [],
+          percentileScale: true,
           hudFormat: function(idx) {
             var rv = rsRatio[idx], hv = rsHMA[idx], dt = dates[idx];
             var a1 = alpha1m[idx], a2 = alpha2m[idx], a3 = alpha3m[idx];
@@ -7957,14 +8337,36 @@ function openHilegaTab() {
         for (var hi = 0; hi < sd.indexList.length; hi++) {
           if (sd.indexList[hi].key === savedKey) {
             var catSel = document.getElementById('hmCatSelect');
-            if (catSel) catSel.value = sd.indexList[hi].nseKey || '';
+            // Use the authoritative master-data category rather than trusting
+            // indexList[hi].nseKey directly — a stale/wrong tag there was the
+            // root cause of the Category/Index desync bug (e.g. Nifty 500
+            // mistagged under a Sectoral category). Falls back to the raw tag
+            // only if the master lookup can't resolve it.
+            var trueCat = (typeof U !== 'undefined' && typeof U.categoryForKey === 'function')
+              ? U.categoryForKey(U.normalize(sd.indexList[hi].name))
+              : null;
+            if (catSel) catSel.value = (trueCat && trueCat !== 'Other') ? trueCat : (sd.indexList[hi].nseKey || '');
             break;
           }
         }
       }
       // Rebuild index dropdown for the selected category
       hmUpdateIdxDropdown();
-      if (idxSel) idxSel.value = savedKey;
+      // Only re-apply savedKey if it's actually present in the rebuilt list
+      // for this category — the category cross-check above (or the same
+      // guard inside hmUpdateIdxDropdown) can legitimately exclude it if the
+      // saved key/category pairing was stale. Silently assigning a value
+      // that isn't a valid option is a no-op in browsers, which previously
+      // left the dropdown's displayed category and index out of sync with
+      // each other and with the chart that then rendered from the old key.
+      if (idxSel && idxSel.querySelector('option[value="' + savedKey + '"]')) {
+        idxSel.value = savedKey;
+      } else if (idxSel) {
+        idxSel.value = '';
+        window._hmHist = null;
+        window._hmHistCode = null;
+        BB.hmIndexKey('');
+      }
     }
   }
   requestAnimationFrame(function() { drawHilegaMilega(); });
