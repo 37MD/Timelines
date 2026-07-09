@@ -954,40 +954,6 @@ th.ha-sep,td.ha-sep{border-left:3px solid var(--orange)!important}
 <!-- ── 3.2 Timeline Scanner Panel (React mount point, active by default) ── -->
 <div id="tab-scanner" class="tab-panel active">
 <div id="root"></div>
-<!-- ── NPS Scheme NAV list ── plain HTML table, separate from the React
-     scanner root above. Reads directly from the NPS IndexedDB cache
-     (DEEP_CACHE_KEY_NPS) via renderNPSTable(), independent of the React
-     scan state — so it shows whatever NPS data exists regardless of
-     whether a full Scanner run has happened this session. -->
-<div id="npsSection" style="margin-top:16px;border-top:2px solid var(--border2);padding-top:10px;">
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:0 10px 6px;">
-    <span style="font-family:var(--mono);font-weight:700;font-size:13px;">NPS SCHEME NAVs</span>
-    <span id="npsSectionSummary" style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">—</span>
-  </div>
-  <div style="overflow-x:auto;">
-    <table style="width:100%;min-width:520px;border-collapse:collapse;font-family:var(--mono);font-size:11px;table-layout:fixed;">
-      <colgroup>
-        <col style="width:38%;">
-        <col style="width:16%;">
-        <col style="width:18%;">
-        <col style="width:14%;">
-        <col style="width:14%;">
-      </colgroup>
-      <thead>
-        <tr style="background:var(--green-dim);">
-          <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--border2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Scheme</th>
-          <th style="text-align:right;padding:5px 8px;border-bottom:1px solid var(--border2);white-space:nowrap;">Latest NAV</th>
-          <th style="text-align:right;padding:5px 8px;border-bottom:1px solid var(--border2);white-space:nowrap;">Date</th>
-          <th style="text-align:right;padding:5px 8px;border-bottom:1px solid var(--border2);white-space:nowrap;">1D Chg%</th>
-          <th style="text-align:right;padding:5px 8px;border-bottom:1px solid var(--border2);white-space:nowrap;">Rows</th>
-        </tr>
-      </thead>
-      <tbody id="npsTableBody">
-        <tr><td colspan="5" style="text-align:center;padding:14px;color:var(--text-dim);">No NPS data yet — run SCAN to download.</td></tr>
-      </tbody>
-    </table>
-  </div>
-</div>
 </div>
 
 <!-- ── 3.3 Hilega Panel (populated in Section 13 below) ── -->
@@ -3437,6 +3403,92 @@ Reasoning: [One-line explanation tying data to the rule]`;
           dailyMap: sharedDailyMap,
           nseRaw: nseRawWith30d
         };
+
+        // ── Merge NPS scheme NAVs into the SAME visible table ──
+        // This is the actual React state (tempResults → setResults) that
+        // drives the on-screen Scanner table — a separate ptRunScan()/
+        // ptAllComputedRows pipeline exists elsewhere in this file but is
+        // NOT what populates this table, so adding NPS there earlier had
+        // no visible effect. Mirrors the exact per-row computation above
+        // (daily/weekly RSI, WMA20, regime, action) using NPS NAV history
+        // in place of NSE closes — a NAV series is just as valid an input
+        // for this math as a price series, so no NPS-specific formulas
+        // are needed.
+        try {
+          const npsCacheForScan = await new Promise(res => { _npsLoadCache(res); });
+          const npsMapForScan = (npsCacheForScan && npsCacheForScan.npsMap) || {};
+          Object.keys(npsMapForScan).forEach(code => {
+            const navRows = npsMapForScan[code]; // newest-first: [{date,nav}]
+            if (!navRows || navRows.length < 15) return;
+            const closes = navRows.slice().reverse().map(r => r.nav); // oldest-first
+            const schemeName = (DD.NPS._schemeNames && DD.NPS._schemeNames[code]) || code;
+            const latest = navRows[0], prev = navRows[1];
+            // NOTE: the visible %CHG column reads row.changePct (a number),
+            // NOT row.percentChange (a string) — that field name is only
+            // correct for raw NSE priceMap entries, which get translated to
+            // changePct via parseFloat(idx.percentChange) elsewhere. Since
+            // NPS rows are built directly into tempResults with no
+            // priceMap step in between, they need changePct set directly
+            // or the column stays blank even though the row itself is
+            // otherwise fully populated.
+            const changePct = (prev && prev.nav > 0)
+              ? Math.round(((latest.nav - prev.nav) / prev.nav * 100) * 100) / 100
+              : 0;
+            let row = {
+              name: schemeName,
+              price: latest.nav,
+              changePct: changePct
+            };
+            row.divergence = false;
+            const dA4 = calcRSI(closes, 4), dA8 = calcRSI(closes, 8), dA14 = calcRSI(closes, 14);
+            row.dRsi4 = dA4.length ? dA4[dA4.length - 1] : null;
+            row.dRsi8 = dA8.length ? dA8[dA8.length - 1] : null;
+            row.dRsi14 = dA14.length ? dA14[dA14.length - 1] : null;
+            row._dailyCloses = closes.slice(-30);
+            const weekly = [];
+            for (let i = 0; i < closes.length; i += 5) weekly.push(closes[Math.min(i + 4, closes.length - 1)]);
+            if (weekly.length >= 15) {
+              const wA4 = calcRSI(weekly, 4), wA8 = calcRSI(weekly, 8), wA14 = calcRSI(weekly, 14);
+              row.wRsi4 = wA4.length ? wA4[wA4.length - 1] : null;
+              row.wRsi8 = wA8.length ? wA8[wA8.length - 1] : null;
+              row.wRsi14 = wA14.length ? wA14[wA14.length - 1] : null;
+              row.wma20Price = calcWMA(weekly, Math.min(20, weekly.length));
+              row.wma20Rsi = calcWMA(wA4, Math.min(20, wA4.length));
+              if (dA4.length > 2) {
+                const p = dA4[dA4.length - 2], c = dA4[dA4.length - 1];
+                if (p != null && c > p && row.wma20Price && row.price < row.wma20Price) row.divergence = true;
+              }
+            }
+            row.regime = computeRegime(row['wRsi' + basePeriod], row.price, row.wma20Price);
+            const ac = computeAction(row.regime, row['dRsi' + basePeriod]);
+            row.action = ac.action;
+            row.rec = ac.rec;
+            tempResults[code] = row;
+            // Also feed sharedDailyMap so Chart tab / Hilega-Milega and
+            // other consumers of _ldScannerData.dailyMap can plot NPS
+            // schemes too, using the same 'DD-MM-YYYY|o|h|l|c' pipe format
+            // as NSE entries (o=h=l=c=nav since NPS has no OHLC, just NAV).
+            const entries = navRows.slice().reverse().map(r => {
+              const parts = r.date.split('-'); // 'DD-MM-YYYY'
+              const ddmmyyyy = parts.length === 3 ? parts.join('') : r.date;
+              return ddmmyyyy + '|' + r.nav + '|' + r.nav + '|' + r.nav + '|' + r.nav;
+            });
+            sharedDailyMap[code] = entries;
+            sharedDailyMap[schemeName.toLowerCase()] = entries;
+          });
+          setResults({ ...tempResults });
+          if (window._ldScannerData) {
+            window._ldScannerData.indexList = window._ldScannerData.indexList.concat(
+              Object.keys(npsMapForScan)
+                .filter(code => npsMapForScan[code] && npsMapForScan[code].length >= 15)
+                .map(code => ({
+                  name: (DD.NPS._schemeNames && DD.NPS._schemeNames[code]) || code,
+                  key: code,
+                  nseKey: 'NPS Schemes'
+                }))
+            );
+          }
+        } catch (e) { console.warn('[NPS] failed to merge into visible scanner table:', e); }
       } else {
         const total = indexList.length;
         for (let i = 0; i < total; i++) {
@@ -3601,6 +3653,77 @@ Reasoning: [One-line explanation tying data to the rule]`;
             label: `BA ${baDone}/${baTargets.length}`
           });
           if (batchStart + BATCH_SIZE < baTargets.length) await new Promise(r => setTimeout(r, 4200));
+        }
+      }
+      // ── NPS Scheme BA batch — runs AFTER NSE BA batch ──
+      // tempResults now has NPS entries (added by the NPS merge block above),
+      // so npsBATargets.filter() can find them. Must run after NSE BA so
+      // baSnap is already seeded with same-day NSE results and NPS entries
+      // in tempResults are guaranteed to exist.
+      if ((sk1.length >= 20 || sk2.length >= 20) && !stopRef.current) {
+        const npsBATargets = Object.keys(tempResults).filter(code => {
+          const r = tempResults[code];
+          return r && r.name && r.name.startsWith('[NPS]') && !r.error &&
+            (r.regime === 'A' || watchlist.includes(r.name)) &&
+            (!baSnap[r.name] || baSnap[r.name].status !== 'done');
+        });
+        if (npsBATargets.length > 0) {
+          const initNPS = {};
+          npsBATargets.forEach(code => {
+            const loading = { status: 'loading', pct: null };
+            initNPS[tempResults[code].name] = loading;
+            baSnap[tempResults[code].name] = loading;
+          });
+          setBaResults(prev => ({ ...prev, ...initNPS }));
+          const NPS_BATCH_SIZE = 8;
+          let npsBADone = 0;
+          for (let bs = 0; bs < npsBATargets.length; bs += NPS_BATCH_SIZE) {
+            if (stopRef.current || baStopRef.current) break;
+            const npsBatch = npsBATargets.slice(bs, bs + NPS_BATCH_SIZE).map(code => ({
+              code,
+              name: tempResults[code].name,
+              wRsi: tempResults[code]?.['wRsi' + basePeriod] ?? 0,
+              regime: tempResults[code]?.regime ?? ''
+            }));
+            const batchLines = npsBatch.map((s, i) => {
+              const rg = s.wRsi >= 50 ? 'A (Hope)' : s.wRsi >= 40 ? 'B (Watch)' : 'C (Fear)';
+              return `[${i + 1}] ${s.name} (code: ${s.code}): NAV W-RSI(${basePeriod}) = ${Math.round(s.wRsi)} → Regime ${rg}`;
+            }).join('\n');
+            const npsPrompt = `You are an NPS (National Pension System) fund analyst for India.
+
+TASK: For EACH of the ${npsBatch.length} NPS schemes below, estimate what percentage of that scheme's total AUM is allocated to Equity (Asset Class E) holdings whose underlying constituent stocks are currently in Regime A (Weekly RSI ≥ 50, price above 20-week MA — genuine uptrend).
+
+CONTEXT:
+- NPS schemes invest across Asset Class E (equity), G (Govt securities), C (corporate bonds), A (alternative assets).
+- Only Asset Class E holdings can be in Regime A — G/C/A holdings are excluded.
+- Use your knowledge of the latest disclosed monthly portfolio compositions (npstrust.org.in and AMC websites) to estimate Regime A breadth within each scheme's equity holdings.
+- Scheme E variants typically have ~75% AUM in Asset Class E. Scheme C variants have ~15-25% in Asset Class E.
+- regime_a_weight_pct = (% of total AUM in Asset Class E) × (% of that equity basket in Regime A stocks by market-cap weight).
+
+Return ONLY a JSON object where each key is the scheme name exactly as shown and the value is:
+{"regime_a_weight_pct": <0-100>, "equity_aum_pct": <0-100>, "regime_a_equity_breadth_pct": <0-100>, "top_regime_a": ["Stock1","Stock2","Stock3"], "confidence": "HIGH|MEDIUM|LOW", "note": "one sentence on equity posture"}
+
+Schemes:
+${batchLines}`;
+            setProgress({ done: 0, total: 0, label: `NPS BA batch ${Math.floor(bs / NPS_BATCH_SIZE) + 1}/${Math.ceil(npsBATargets.length / NPS_BATCH_SIZE)} (${npsBatch.length} schemes)` });
+            const npsResult = await DD.fetchGemini(npsPrompt, { timeout: 45000, responseType: 'application/json' });
+            if (npsResult && typeof npsResult === 'object') {
+              for (const s of npsBatch) {
+                const r = npsResult[s.name];
+                const pct = r?.regime_a_weight_pct ?? null;
+                baSnap[s.name] = { status: pct !== null ? 'done' : 'error', pct, bull: r?.regime_a_equity_breadth_pct ?? null, total: r?.equity_aum_pct ?? null, conf: r?.confidence ?? '', note: r?.note ?? '' };
+                npsBADone++;
+              }
+            } else {
+              for (const s of npsBatch) {
+                baSnap[s.name] = { status: 'error', pct: null, bull: null, total: null, conf: '', note: 'NPS batch call failed' };
+                npsBADone++;
+              }
+            }
+            setBaResults(prev => ({ ...prev, ...baSnap }));
+            setProgress({ done: 0, total: 0, label: `NPS BA ${npsBADone}/${npsBATargets.length}` });
+            if (bs + NPS_BATCH_SIZE < npsBATargets.length) await new Promise(r => setTimeout(r, 4200));
+          }
         }
       }
       setProgress({
@@ -5727,66 +5850,9 @@ async function fetchDeepNPSHistory(codes, onProgress) {
   cache.lastUpdated = deepFmtDate(new Date());
   await _npsSaveCache(cache);
   console.log('[NPS] fetch complete —', okCount, 'schemes with data,', emptyCount, 'empty/failed, out of', list.length, 'total');
-  if (typeof window.renderNPSTable === 'function') window.renderNPSTable();
   return cache;
 }
 
-// ── Render the NPS scheme NAV list in the Scanner tab ──
-// Reads straight from IndexedDB (via _npsLoadCache) — deliberately
-// independent of React scan state, so it shows whatever NPS data exists
-// regardless of whether the main Scanner has run this session. Safe to
-// call any time (tab load, after a scan, or manually from console).
-function renderNPSTable() {
-  var tbody = document.getElementById('npsTableBody');
-  var summary = document.getElementById('npsSectionSummary');
-  if (!tbody) return;
-  _npsLoadCache(function(cache) {
-    var npsMap = (cache && cache.npsMap) || {};
-    var codes = Object.keys(npsMap).filter(function(c) { return npsMap[c] && npsMap[c].length > 0; });
-    if (codes.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:14px;color:var(--text-dim);">No NPS data yet — run SCAN to download.</td></tr>';
-      if (summary) summary.textContent = '—';
-      return;
-    }
-    // Sort by scheme name for stable, readable ordering
-    codes.sort(function(a, b) {
-      var na = (DD.NPS._schemeNames && DD.NPS._schemeNames[a]) || a;
-      var nb = (DD.NPS._schemeNames && DD.NPS._schemeNames[b]) || b;
-      return na < nb ? -1 : na > nb ? 1 : 0;
-    });
-    var rowsHtml = codes.map(function(code) {
-      var rows = npsMap[code]; // newest-first
-      var latest = rows[0];
-      var prev = rows[1];
-      var chg = (prev && prev.nav > 0) ? ((latest.nav - prev.nav) / prev.nav * 100) : null;
-      var chgColor = chg == null ? 'var(--text-dim)' : (chg >= 0 ? 'var(--green)' : 'var(--red)');
-      var chgText = chg == null ? '—' : (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
-      var fullName = (DD.NPS._schemeNames && DD.NPS._schemeNames[code]) || code;
-      // Strip the redundant "[NPS] " prefix for display (the section
-      // header already says "NPS Scheme NAVs") — recovers width for the
-      // AMC/scheme/tier text that actually distinguishes rows from each
-      // other, which is what was getting clipped/wrapped before.
-      var shortName = fullName.replace(/^\[NPS\]\s*/, '');
-      return '<tr style="border-bottom:1px solid var(--border);">' +
-        '<td style="padding:4px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + fullName.replace(/"/g,'&quot;') + '">' + shortName + '</td>' +
-        '<td style="padding:4px 8px;text-align:right;white-space:nowrap;">' + latest.nav.toFixed(4) + '</td>' +
-        '<td style="padding:4px 8px;text-align:right;white-space:nowrap;">' + latest.date + '</td>' +
-        '<td style="padding:4px 8px;text-align:right;white-space:nowrap;color:' + chgColor + ';">' + chgText + '</td>' +
-        '<td style="padding:4px 8px;text-align:right;white-space:nowrap;">' + rows.length + '</td>' +
-        '</tr>';
-    }).join('');
-    tbody.innerHTML = rowsHtml;
-    if (summary) summary.textContent = codes.length + ' of ' + Object.keys(npsMap).length + ' schemes' + (cache.lastUpdated ? ' · updated ' + cache.lastUpdated : '');
-  });
-}
-window.renderNPSTable = renderNPSTable;
-// Populate on initial page load too, in case NPS data already exists from
-// a previous session — don't wait for a fresh scan to show it.
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', function() { renderNPSTable(); });
-} else {
-  renderNPSTable();
-}
 
 // ── 11.5 Toolbar Progress (next to SCAN button) ──────────────────────────────
 // Shows download progress inline in the .ld-toolbar, right next to the SCAN
@@ -7090,6 +7156,16 @@ win.DEEP_CACHE_KEY_DAILY = DEEP_CACHE_KEY_DAILY;
 win.DEEP_CACHE_KEY_WEEKLY = DEEP_CACHE_KEY_WEEKLY;
 win.DEEP_CACHE_KEY_MONTHLY = DEEP_CACHE_KEY_MONTHLY;
 win.fetchDeepNPSHistory = fetchDeepNPSHistory;
+// _npsLoadCache/_npsSaveCache were previously only reachable inside this
+// IIFE's closure — handleScan() (the actual function behind the SCAN
+// button, in a different <script> block entirely) calls both directly to
+// merge NPS scheme data into the visible scanner table, but since they
+// were never attached to win, that call silently threw a ReferenceError,
+// was swallowed by handleScan's try/catch, and the merge never happened.
+// This was the root cause of NPS rows never appearing in the main list
+// despite the merge code itself being otherwise correct.
+win._npsLoadCache = _npsLoadCache;
+win._npsSaveCache = _npsSaveCache;
 win.DEEP_CACHE_KEY_NPS = DEEP_CACHE_KEY_NPS;
 // ── Auto-refresh on page load ─────────────────────────────────────────────
 // Check cache staleness and trigger background update if needed.
