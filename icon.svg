@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect x="0" y="0" width="512" height="512" rx="113" fill="#0d1421"/>
+  <!-- 5 candlesticks forming a rough uptrend, echoing the app's own
+       Hilega-Milega chart visual language -->
+  <g stroke-linecap="round">
+    <!-- candle 1 (down) -->
+    <line x1="107" y1="298" x2="107" y2="490" stroke="#d63a3a" stroke-width="6"/>
+    <rect x="83" y="332" width="48" height="114" fill="#d63a3a"/>
+    <!-- candle 2 (up) -->
+    <line x1="179" y1="248" x2="179" y2="463" stroke="#2ea84f" stroke-width="6"/>
+    <rect x="155" y="270" width="48" height="94" fill="#2ea84f"/>
+    <!-- candle 3 (down) -->
+    <line x1="251" y1="282" x2="251" y2="472" stroke="#d63a3a" stroke-width="6"/>
+    <rect x="227" y="316" width="48" height="94" fill="#d63a3a"/>
+    <!-- candle 4 (up) -->
+    <line x1="323" y1="177" x2="323" y2="335" stroke="#2ea84f" stroke-width="6"/>
+    <rect x="299" y="203" width="48" height="106" fill="#2ea84f"/>
+    <!-- candle 5 (up) -->
+    <line x1="395" y1="87" x2="395" y2="243" stroke="#2ea84f" stroke-width="6"/>
+    <rect x="371" y="107" width="48" height="106" fill="#2ea84f"/>
+  </g>
+  <!-- Amber trend line riding across the candle bodies -->
+  <polyline points="107,347 179,278 251,309 323,213 395,113"
+            fill="none" stroke="#f0c060" stroke-width="10"
+            stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="395" cy="113" r="11" fill="#f0c060"/>
+</svg>
