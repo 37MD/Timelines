@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="80" fill="#d4880f"/>
-  <text x="256" y="300" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="320" font-weight="bold" fill="#ffffff">T</text>
-  <circle cx="400" cy="120" r="50" fill="#ffffff" opacity="0.25"/>
-  <line x1="370" y1="80" x2="430" y2="160" stroke="#ffffff" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
-  <line x1="430" y1="80" x2="370" y2="160" stroke="#ffffff" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
-</svg>
