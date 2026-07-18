@@ -642,6 +642,7 @@ th.ha-sep,td.ha-sep{border-left:3px solid var(--orange)!important}
     <button class="tab-btn active" onclick="switchTab('pt')">💹 Portfolio Snapshot</button>
     <button class="tab-btn" onclick="switchTab('hilega')">📈 Chart</button>
     <button class="tab-btn" onclick="switchTab('npsswitch')" title="Suggests Equity/Corporate Bond switch % for a chosen AMC + Tier, using the same Regime A/B/C + RSI logic as Portfolio Snapshot">⚖️ NPS Switch</button>
+    <button class="tab-btn" onclick="switchTab('tactical')" title="Tactical Transfer Strategy — Source → Intermediate → Target transfer planner">🔄 Timeline</button>
   </div>
   <div class="app-tabs-right">
     <span id="runAllStatus"></span>
@@ -2941,6 +2942,7 @@ function switchTab(name) {
   if (name === 'pt' && typeof window.onPTTabActivated === 'function') { window.onPTTabActivated(); }
   if (name === 'hilega' && typeof openHilegaTab === 'function') { openHilegaTab(); }
   if (name === 'npsswitch' && typeof window.onNpsSwitchTabActivated === 'function') { window.onNpsSwitchTabActivated(); }
+  if (name === 'tactical' && typeof window.onTacticalTabActivated === 'function') { window.onTacticalTabActivated(); }
 }
 
 // ═══ SCAN ALL: Sequential orchestration ═══
@@ -3328,6 +3330,18 @@ async function ptRunScan(){
   ptScanR=[];
   ptLog('⚡ Scan started — fetching data...');
   try{
+
+  // ── Step -1: NPS + BAF 2500-day data (Section 15, fallback) ──
+  // This is a safety net in case the DL button was never pressed.
+  // Primary entry point is downloadData() Step 0 — not this.
+  try {
+    if(typeof window.downloadNPSBAF2500==='function'){
+      ptEl('pt-st').innerHTML='<span style="display:inline-block;width:10px;height:10px;border:2px solid #b8860b;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite;margin-right:4px;vertical-align:middle"></span> Downloading NPS+BAF 2500-day data (Section 15)...';
+      ptLog('Step -1: Downloading NPS + BAF 2500-day daily data...');
+      await window.downloadNPSBAF2500(function(m){ ptLog(m); });
+      ptLog('NPS + BAF 2500-day data downloaded');
+    }
+  } catch(_e2500) { ptLog('NPS/BAF 2500 download error: '+(_e2500.message||_e2500)); }
 
   var priceMap={},dailyMap={};
 
@@ -4079,10 +4093,24 @@ function ptHighlightRow(el){
   rows.forEach(function(r){r.style.background='';});
   el.closest('tr').style.background='#fffbe6';
 }
-function downloadData(){
+async function downloadData(){
   var btn=document.getElementById('pt-btn-download');
   if(btn){btn.textContent='⏳ Downloading...';btn.disabled=true;btn.style.background='#996600';}
   var st=psEl('pt-st');
+
+  // ── Step 0: NPS + BAF 2500-day data (Section 15) ──
+  // Downloads all NPS (32 schemes) and BAF (4 funds) daily NAV history
+  // as standalone JSON files BEFORE the NSE index download begins.
+  // See Section 15 for full details, audit notes, and output format.
+  try {
+    if(typeof window.downloadNPSBAF2500==='function'){
+      if(st)st.innerHTML='<span style="display:inline-block;width:10px;height:10px;border:2px solid #d4880f;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite;margin-right:4px;vertical-align:middle"></span> Downloading NPS + BAF 2500-day data...';
+      console.log('[DL] Step 0: Downloading NPS + BAF 2500-day daily data (Section 15)...');
+      await window.downloadNPSBAF2500(function(m){ console.log('[DL-2500]', m); });
+      console.log('[DL] NPS + BAF 2500-day data saved');
+    }
+  } catch(_e2500) { console.warn('[DL] NPS/BAF 2500 download error:', _e2500); }
+
   if(st)st.innerHTML='<span style="display:inline-block;width:10px;height:10px;border:2px solid #d4880f;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite;margin-right:4px;vertical-align:middle"></span> Downloading 2500 days of data for 158 indices...';
   fetchDeepWeeklyHistory(function(done,total){
     if(st)st.innerHTML='<span style="display:inline-block;width:10px;height:10px;border:2px solid #d4880f;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite;margin-right:4px;vertical-align:middle"></span> Downloading: '+done+'/'+total+' days...';
@@ -8210,6 +8238,160 @@ return { open: openHilegaTab, draw: drawHilegaMilega };
   </div>
 </div>
 <!-- #tab-npsswitch -->
+
+<!-- ════════════════════════════════════════════════════════════════════════════
+     TAB: Timeline — Tactical Transfer Strategy
+     Source (BAF) → Intermediate (NPS C) → Target (NPS E)
+     ════════════════════════════════════════════════════════════════════════════ -->
+<div id="tab-tactical" class="tab-panel">
+  <div style="max-width:560px;margin:0 auto;padding:10px 12px 32px;font-family:'Segoe UI',Arial,sans-serif;color:var(--n-text,#0a2540);">
+
+    <div style="text-align:center;margin-bottom:10px;">
+      <div style="font-size:0.68rem;color:var(--n-accent,#009e70);letter-spacing:0.18em;text-transform:uppercase;opacity:0.75;">Tactical Transfer Strategy</div>
+      <div style="font-size:1.15rem;font-weight:700;">🔄 Timeline</div>
+      <div style="font-size:11px;color:#888;margin-top:2px;">Source → Intermediate → Target</div>
+    </div>
+
+    <!-- ── Row 1: Fund selectors + Timeframe + Charts ── -->
+    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;align-items:stretch;">
+
+      <!-- Source -->
+      <div style="flex:1 1 72px;min-width:72px;">
+        <div style="font-size:8px;font-weight:700;color:var(--n-accent,#009e70);text-transform:uppercase;letter-spacing:0.08em;text-align:center;line-height:1;margin-bottom:3px;">BAF Source</div>
+        <select id="tactical-src" style="width:100%;padding:5px 3px;border:1px solid var(--border,#ccc);border-radius:5px;font-size:10px;background:var(--n-card,#fff);color:var(--n-text,#0a2540);box-sizing:border-box;">
+          <option value="">Fund</option>
+        </select>
+      </div>
+
+      <!-- Intermediate -->
+      <div style="flex:1 1 72px;min-width:72px;">
+        <div style="font-size:8px;font-weight:700;color:#b8860b;text-transform:uppercase;letter-spacing:0.08em;text-align:center;line-height:1;margin-bottom:3px;">NPS Bonds</div>
+        <select id="tactical-mid" style="width:100%;padding:5px 3px;border:1px solid var(--border,#ccc);border-radius:5px;font-size:10px;background:var(--n-card,#fff);color:var(--n-text,#0a2540);box-sizing:border-box;">
+          <option value="">Scheme C</option>
+        </select>
+      </div>
+
+      <!-- Target -->
+      <div style="flex:1 1 72px;min-width:72px;">
+        <div style="font-size:8px;font-weight:700;color:#cc3344;text-transform:uppercase;letter-spacing:0.08em;text-align:center;line-height:1;margin-bottom:3px;">Target NPS</div>
+        <select id="tactical-tgt" style="width:100%;padding:5px 3px;border:1px solid var(--border,#ccc);border-radius:5px;font-size:10px;background:var(--n-card,#fff);color:var(--n-text,#0a2540);box-sizing:border-box;">
+          <option value="">Scheme E</option>
+        </select>
+      </div>
+
+      <!-- Timeframe -->
+      <div style="flex:0 0 58px;min-width:58px;">
+        <div style="font-size:8px;font-weight:700;color:#6a3fb5;text-transform:uppercase;letter-spacing:0.08em;text-align:center;line-height:1;margin-bottom:3px;">Timeframe</div>
+        <select id="tactical-tf" style="width:100%;padding:5px 2px;border:1px solid var(--border,#ccc);border-radius:5px;font-size:10px;background:var(--n-card,#fff);color:var(--n-text,#0a2540);box-sizing:border-box;">
+          <option value="daily" selected>Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+        </select>
+      </div>
+
+      <!-- Charts -->
+      <div style="flex:0 0 54px;min-width:54px;">
+        <div style="font-size:8px;font-weight:700;color:#d4880f;text-transform:uppercase;letter-spacing:0.08em;text-align:center;line-height:1;margin-bottom:3px;">Charts</div>
+        <select id="tactical-charts" style="width:100%;padding:5px 2px;border:1px solid var(--border,#ccc);border-radius:5px;font-size:10px;background:var(--n-card,#fff);color:var(--n-text,#0a2540);box-sizing:border-box;">
+          <option value="">View</option>
+          <option value="src">Source</option>
+          <option value="mid">Interm.</option>
+          <option value="tgt">Target</option>
+        </select>
+      </div>
+
+    </div>
+
+    <!-- ── Row 2: Period + Strategy + Backtest Data + Backtest TF + BackTest ── -->
+    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;align-items:stretch;">
+
+      <!-- Period -->
+      <div style="flex:0 0 52px;min-width:52px;">
+        <div style="font-size:8px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:0.08em;text-align:center;line-height:1;margin-bottom:3px;">Period</div>
+        <select id="tactical-period" style="width:100%;padding:5px 2px;border:1px solid var(--border,#ccc);border-radius:5px;font-size:10px;background:var(--n-card,#fff);color:var(--n-text,#0a2540);box-sizing:border-box;">
+          <option value="1y">1Y</option>
+          <option value="3y" selected>3Y</option>
+          <option value="5y">5Y</option>
+        </select>
+      </div>
+
+      <!-- Strategy -->
+      <div style="flex:1 1 78px;min-width:78px;">
+        <div style="font-size:8px;font-weight:700;color:#0891b2;text-transform:uppercase;letter-spacing:0.08em;text-align:center;line-height:1;margin-bottom:3px;">Strategy</div>
+        <select id="tactical-strategy" style="width:100%;padding:5px 2px;border:1px solid var(--border,#ccc);border-radius:5px;font-size:10px;background:var(--n-card,#fff);color:var(--n-text,#0a2540);box-sizing:border-box;">
+          <option value="sms">8SMA</option>
+          <option value="hm">Hilega Milega</option>
+        </select>
+      </div>
+
+      <!-- Backtest Data -->
+      <div style="flex:1 1 68px;min-width:68px;">
+        <div style="font-size:8px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:0.08em;text-align:center;line-height:1;margin-bottom:3px;">BT Data</div>
+        <select id="tactical-bt-data" style="width:100%;padding:5px 2px;border:1px solid var(--border,#ccc);border-radius:5px;font-size:10px;background:var(--n-card,#fff);color:var(--n-text,#0a2540);box-sizing:border-box;">
+          <option value="src">Source</option>
+          <option value="mid">Interm.</option>
+          <option value="tgt">Target</option>
+        </select>
+      </div>
+
+      <!-- Backtest Timeframe -->
+      <div style="flex:0 0 56px;min-width:56px;">
+        <div style="font-size:8px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:0.08em;text-align:center;line-height:1;margin-bottom:3px;">BT TF</div>
+        <select id="tactical-bt-tf" style="width:100%;padding:5px 2px;border:1px solid var(--border,#ccc);border-radius:5px;font-size:10px;background:var(--n-card,#fff);color:var(--n-text,#0a2540);box-sizing:border-box;">
+          <option value="weekly" selected>Weekly</option>
+          <option value="monthly">Monthly</option>
+        </select>
+      </div>
+
+      <!-- BackTest -->
+      <div style="flex:0 0 52px;min-width:52px;">
+        <div style="font-size:8px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:0.08em;text-align:center;line-height:1;margin-bottom:3px;">BackTest</div>
+        <button id="tactical-backtest" onclick="_tacticalBacktestClick()" style="width:100%;padding:5px 2px;border:1px solid var(--border,#ccc);border-radius:5px;font-size:10px;background:var(--n-card,#fff);color:var(--n-text,#0a2540);box-sizing:border-box;cursor:pointer;">Run</button>
+      </div>
+
+    </div>
+
+    <div id="tactical-status" style="font-size:11px;color:#888;text-align:center;margin-top:4px;"></div>
+
+    <!-- ── Chart area: Price vs SMA(8) + Hilega Milega — rendered independently ── -->
+    <div id="tactical-chart-wrap" style="display:none;margin-top:8px;border:1px solid var(--border,#e0e0e0);border-radius:8px;overflow:hidden;background:var(--n-card,#fff);">
+      <div id="tactical-chart-label" style="font-size:10px;font-weight:700;color:#333;padding:6px 8px 0;text-align:center;"></div>
+      <div style="position:relative;width:100%;height:160px;">
+        <canvas id="tactical-chart-canvas" style="width:100%;height:100%;display:block;"></canvas>
+      </div>
+      <div id="tactical-chart-hud" style="font-size:9px;color:#666;padding:2px 8px 3px;text-align:center;"></div>
+      <div style="position:relative;width:100%;height:120px;border-top:1px solid var(--border,#e0e0e0);">
+        <canvas id="tactical-hm-canvas" style="width:100%;height:100%;display:block;"></canvas>
+      </div>
+      <div id="tactical-hm-hud" style="font-size:9px;color:#666;padding:2px 8px 3px;text-align:center;"></div>
+    </div>
+
+    <!-- ── BackTest Table ── -->
+    <div id="tactical-bt-wrap" style="display:none;margin-top:8px;border:1px solid var(--border,#e0e0e0);border-radius:8px;overflow:hidden;background:var(--n-card,#fff);">
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;padding:6px 8px 4px;gap:2px;">
+        <div style="font-size:10px;font-weight:700;color:#333;">BackTest Results<span id="tactical-bt-summary"></span></div>
+      </div>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
+        <table id="tactical-bt-table" style="width:100%;border-collapse:collapse;font-size:9px;font-family:monospace;">
+          <thead>
+            <tr style="background:#f5f5f5;border-top:1px solid #e0e0e0;border-bottom:1px solid #e0e0e0;">
+              <th style="padding:4px 4px;text-align:left;font-size:8px;color:#666;font-weight:600;">Buy</th>
+              <th style="padding:4px 4px;text-align:right;font-size:8px;color:#666;font-weight:600;">NAV</th>
+              <th style="padding:4px 4px;text-align:left;font-size:8px;color:#666;font-weight:600;">Sell</th>
+              <th style="padding:4px 4px;text-align:right;font-size:8px;color:#666;font-weight:600;">NAV</th>
+              <th style="padding:4px 4px;text-align:right;font-size:8px;color:#666;font-weight:600;">Ret</th>
+              <th style="padding:4px 4px;text-align:right;font-size:8px;color:#666;font-weight:600;">Period</th>
+            </tr>
+          </thead>
+          <tbody id="tactical-bt-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+<!-- #tab-tactical -->
+
 <script>
 /* ================================================================
    SECTION 14: NPS SWITCH — Equity/Corporate-Debt Regime Advisor
@@ -8860,6 +9042,1247 @@ function nsBcRun() {
     '</tr>';
   }).join('');
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 16: TACTICAL TRANSFER STRATEGY — Source → Intermediate → Target
+// ═══════════════════════════════════════════════════════════════════════════════
+// PURPOSE:
+//   1. Populates the fund dropdowns on the Tactical Transfer Strategy tab
+//   2. On any dropdown change: fetches data from APIs, renders 2-pane chart
+//      (Price/SMA8 + Hilega Milega) INDEPENDENTLY on the Timeline canvas
+//   3. BackTest with 8SMA and Hilega Milega strategies + Parking returns
+//      (Corporate Bond fund returns during sell→buy gaps)
+//   4. Dropdown selections persist via localStorage
+//
+// DATA SOURCES:
+//   NPS: npsnav.in API — no proxy needed
+//   BAF: mfapi.in API  — no proxy needed
+//   Data cached in memory after first fetch — no re-fetch on subsequent clicks
+//
+// DROPDOWN IDs:
+//   #tactical-src  — BAF fund select
+//   #tactical-mid  — NPS C (Corporate Bonds) select
+//   #tactical-tgt  — NPS E (Equity) select
+//   #tactical-tf   — Timeframe (daily/weekly/monthly)
+//
+// CANVAS IDs:
+//   #tactical-chart-canvas  — Price vs SMA(8) chart
+//   #tactical-chart-label   — Fund name + stats
+//   #tactical-chart-hud     — Crosshair info
+// ═══════════════════════════════════════════════════════════════════════════════
+(function() {
+  var _built = false;
+  var _npsCache = null;   // { schemes: { name: {code, totalAvailable, entries} } }
+  var _bafCache = null;   // { funds: { name: {amc, code, totalAvailable, entries} } }
+  var _lastEntries = null; // last rendered entries (for timeframe re-render)
+  var _lastFundName = null;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DATA LOADING — fetch from APIs, cache in memory
+  // ═══════════════════════════════════════════════════════════════════
+
+  function _fetchNpsWithRetry(code, url, attempts) {
+    attempts = attempts || 2;
+    return fetch(url + code).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(json) {
+      var rows = Array.isArray(json) ? json : (json && Array.isArray(json.data) ? json.data : []);
+      return rows.map(function(r) { return { date: r.date, nav: parseFloat(r.nav) }; })
+        .filter(function(r) { return !isNaN(r.nav) && r.nav > 0; })
+        .slice(0, 2500);
+    }).catch(function(e) {
+      if (attempts > 1) {
+        return new Promise(function(resolve) {
+          setTimeout(function() { resolve(_fetchNpsWithRetry(code, url, attempts - 1)); }, 800);
+        });
+      }
+      return [];
+    });
+  }
+
+  function _loadNps() {
+    if (_npsCache) return Promise.resolve(_npsCache);
+    var codes = DD.NPS._defaultCodes, names = DD.NPS._schemeNames, url = DD.NPS._url;
+    // Try IDB first
+    return new Promise(function(resolve) {
+      if (typeof _npsLoadCache === 'function') { _npsLoadCache(resolve); }
+      else { resolve({ lastUpdated: null, npsMap: {} }); }
+    }).then(function(idbCache) {
+      var npsMap = idbCache.npsMap || {};
+      var result = {}, missingCodes = [];
+      // Build result from IDB data, collect codes that need fetching
+      codes.forEach(function(code) {
+        var name = names[code] || code;
+        var rows = npsMap[code];
+        if (rows && rows.length >= 10) {
+          result[name] = { code: code, entries: rows.slice(0, 2500) };
+        } else {
+          missingCodes.push(code);
+        }
+      });
+      if (missingCodes.length === 0) {
+        _npsCache = { schemes: result };
+        return _npsCache;
+      }
+      // Fetch missing codes from API with retry, sequentially
+      var chain = Promise.resolve();
+      missingCodes.forEach(function(code) {
+        chain = chain.then(function() {
+          return _fetchNpsWithRetry(code, url).then(function(rows) {
+            if (rows.length > 0) {
+              var name = names[code] || code;
+              result[name] = { code: code, entries: rows };
+              // Merge into IDB cache
+              npsMap[code] = rows;
+            }
+            return new Promise(function(r) { setTimeout(r, 150); });
+          });
+        });
+      });
+      return chain.then(function() {
+        // Save updated cache back to IDB
+        if (typeof _npsSaveCache === 'function' && missingCodes.length > 0) {
+          _npsSaveCache({ lastUpdated: new Date().toISOString(), npsMap: npsMap }).catch(function() {});
+        }
+        _npsCache = { schemes: result };
+        return _npsCache;
+      });
+    });
+  }
+
+  function _fetchBafWithRetry(code, url, attempts) {
+    attempts = attempts || 2;
+    return fetch(url + code).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(json) {
+      var rows = Array.isArray(json) ? json : (json && Array.isArray(json.data) ? json.data : []);
+      return rows.map(function(r) { return { date: r.date, nav: parseFloat(r.nav) }; })
+        .filter(function(r) { return !isNaN(r.nav) && r.nav > 0; })
+        .slice(0, 2500);
+    }).catch(function(e) {
+      if (attempts > 1) {
+        return new Promise(function(resolve) {
+          setTimeout(function() { resolve(_fetchBafWithRetry(code, url, attempts - 1)); }, 800);
+        });
+      }
+      return [];
+    });
+  }
+
+  function _loadBaf() {
+    if (_bafCache) return Promise.resolve(_bafCache);
+    var funds = DD.BAF._funds, url = DD.BAF._url;
+    // Try IDB first
+    return new Promise(function(resolve) {
+      if (typeof _bafLoadCache === 'function') { _bafLoadCache(resolve); }
+      else { resolve({ lastUpdated: null, bafMap: {} }); }
+    }).then(function(idbCache) {
+      var bafMap = idbCache.bafMap || {};
+      var result = {}, missingCodes = [];
+      // Build result from IDB data, collect codes that need fetching
+      Object.keys(funds).forEach(function(amc) {
+        var f = funds[amc];
+        var rows = bafMap[f.code];
+        if (rows && rows.length >= 10) {
+          result[f.name] = { amc: amc, code: f.code, entries: rows.slice(0, 2500) };
+        } else {
+          missingCodes.push({ amc: amc, code: f.code, name: f.name });
+        }
+      });
+      if (missingCodes.length === 0) {
+        _bafCache = { funds: result };
+        return _bafCache;
+      }
+      // Fetch missing codes from API with retry, sequentially
+      var chain = Promise.resolve();
+      missingCodes.forEach(function(item) {
+        chain = chain.then(function() {
+          return _fetchBafWithRetry(item.code, url).then(function(rows) {
+            if (rows.length > 0) {
+              result[item.name] = { amc: item.amc, code: item.code, entries: rows };
+              // Merge into IDB cache
+              bafMap[item.code] = rows;
+            }
+            return new Promise(function(r) { setTimeout(r, 150); });
+          });
+        });
+      });
+      return chain.then(function() {
+        // Save updated cache back to IDB
+        if (typeof _bafSaveCache === 'function' && missingCodes.length > 0) {
+          _bafSaveCache({ lastUpdated: new Date().toISOString(), bafMap: bafMap }).catch(function() {});
+        }
+        _bafCache = { funds: result };
+        return _bafCache;
+      });
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CHART RENDERER — independent Price vs SMA(8) on Timeline canvas
+  // ═══════════════════════════════════════════════════════════════════
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 2-PANE CHART SYSTEM — Price/SMA8 + Hilega Milega (RSI/WMA/EMA)
+  // Unified vertical cursor across both panes
+  // ═══════════════════════════════════════════════════════════════════
+
+  // Stored data for unified cursor
+  var _td = { navs: null, dates: null, sma8: null, rsi: null, wma: null, ema: null, n: 0, fundName: '', timeframe: '' };
+  // Stored chart objects for cursor redraw
+  var _tp1 = null, _tp2 = null;
+
+  function _sma(data, period) {
+    var out = new Array(data.length).fill(null), sum = 0;
+    for (var i = 0; i < data.length; i++) {
+      sum += data[i];
+      if (i >= period) sum -= data[i - period];
+      if (i >= period - 1) out[i] = sum / period;
+    }
+    return out;
+  }
+
+  // ── Pane 1: Price vs SMA(8) ──
+  function _drawPane1() {
+    var canvas = document.getElementById('tactical-chart-canvas');
+    var hud = document.getElementById('tactical-chart-hud');
+    if (!canvas) return null;
+    var wrap = canvas.parentElement;
+    var rect = wrap.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+    var ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
+    var W = rect.width, H = rect.height, n = _td.n;
+    var pad = { top: 10, right: 52, bottom: 6, left: 6 };
+    var cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom;
+    var yMin = Infinity, yMax = -Infinity;
+    for (var i = 0; i < n; i++) {
+      if (_td.navs[i] < yMin) yMin = _td.navs[i];
+      if (_td.navs[i] > yMax) yMax = _td.navs[i];
+      if (_td.sma8[i] != null) { if (_td.sma8[i] < yMin) yMin = _td.sma8[i]; if (_td.sma8[i] > yMax) yMax = _td.sma8[i]; }
+    }
+    var yPad = (yMax - yMin) * 0.08 || 1; yMin -= yPad; yMax += yPad;
+    function toX(i) { return pad.left + (i / (n - 1)) * cW; }
+    function toY(v) { return pad.top + cH - ((v - yMin) / (yMax - yMin)) * cH; }
+    function draw(clean) {
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = '#eee'; ctx.lineWidth = 0.5;
+      for (var g = 0; g < 4; g++) { var gy = pad.top + (cH/3)*g; ctx.beginPath(); ctx.moveTo(pad.left,gy); ctx.lineTo(W-pad.right,gy); ctx.stroke(); }
+      // SMA8
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.beginPath();
+      var s = false;
+      for (var si = 0; si < n; si++) { if (_td.sma8[si]==null) continue; if(!s){ctx.moveTo(toX(si),toY(_td.sma8[si]));s=true;} else ctx.lineTo(toX(si),toY(_td.sma8[si])); }
+      ctx.stroke();
+      // Price (green/red)
+      for (var pi = 1; pi < n; pi++) {
+        ctx.strokeStyle = _td.navs[pi] >= (_td.sma8[pi]!=null?_td.sma8[pi]:_td.navs[pi-1]) ? '#1a8a4a' : '#cc0000';
+        ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(toX(pi-1),toY(_td.navs[pi-1])); ctx.lineTo(toX(pi),toY(_td.navs[pi])); ctx.stroke();
+      }
+      // Y labels
+      ctx.fillStyle = '#666'; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+      for (var yl = 0; yl <= 3; yl++) { var yv = yMin+(yMax-yMin)*(1-yl/3); ctx.fillText(yv.toFixed(1), W-pad.right+3, pad.top+(cH/3)*yl+3); }
+      if (clean) { var c = ctx.getImageData(0,0,canvas.width,canvas.height); return { pad:pad, cW:cW, cH:cH, n:n, W:W, H:H, toX:toX, toY:toY, ctx:ctx, canvas:canvas, cleanImg:c, yMin:yMin, yMax:yMax, dpr:dpr }; }
+    }
+    var chart = draw(true);
+    // HUD
+    var ln = _td.navs[n-1], ls = _td.sma8[n-1];
+    var ld = ls != null ? ((ln-ls)/ls*100) : 0;
+    hud.textContent = 'NAV: '+ln.toFixed(2)+'  SMA(8): '+(ls?ls.toFixed(2):'—')+'  '+(ld>=0?'↑':'↓')+' '+Math.abs(ld).toFixed(1)+'%';
+    chart.draw = draw; chart.hud = hud; chart.toYval = function(v){ return chart.toY(v); };
+    chart.valAt = function(idx) { return 'NAV: '+_td.navs[idx].toFixed(2)+' SMA: '+(_td.sma8[idx]!=null?_td.sma8[idx].toFixed(2):'—'); };
+    return chart;
+  }
+
+  // ── Pane 2: Hilega Milega RSI/WMA/EMA ──
+  function _drawPane2() {
+    var canvas = document.getElementById('tactical-hm-canvas');
+    var hud = document.getElementById('tactical-hm-hud');
+    if (!canvas || !EE || !EE.calcRSISeries) return null;
+    var wrap = canvas.parentElement;
+    var rect = wrap.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+    var ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
+    var W = rect.width, H = rect.height, n = _td.n;
+    var pad = { top: 8, right: 52, bottom: 6, left: 6 };
+    var cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom;
+    var yMin = 0, yMax = 100;
+    function toX(i) { return pad.left + (i / (n - 1)) * cW; }
+    function toY(v) { return pad.top + cH - ((v - yMin) / (yMax - yMin)) * cH; }
+    function hLine(val, color, dash) {
+      ctx.strokeStyle = color; ctx.lineWidth = 0.7; ctx.setLineDash(dash||[]);
+      ctx.beginPath(); ctx.moveTo(pad.left,toY(val)); ctx.lineTo(W-pad.right,toY(val)); ctx.stroke(); ctx.setLineDash([]);
+    }
+    function draw(clean) {
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = 'rgba(26,138,74,0.06)'; ctx.fillRect(pad.left,pad.top,cW,cH/2);
+      ctx.fillStyle = 'rgba(204,0,0,0.06)'; ctx.fillRect(pad.left,pad.top+cH/2,cW,cH/2);
+      hLine(20,'rgba(204,0,0,0.3)',[3,3]); hLine(50,'rgba(0,0,0,0.15)',[]); hLine(88,'rgba(26,138,74,0.3)',[3,3]);
+      // RSI
+      ctx.strokeStyle='#000'; ctx.lineWidth=1.2; ctx.beginPath();
+      var rs=false; for(var i=0;i<n;i++){if(_td.rsi[i]==null)continue;if(!rs){ctx.moveTo(toX(i),toY(_td.rsi[i]));rs=true;}else ctx.lineTo(toX(i),toY(_td.rsi[i]));} ctx.stroke();
+      // WMA
+      ctx.strokeStyle='#e11d48'; ctx.lineWidth=2; ctx.beginPath();
+      var ws=false; for(var i=0;i<n;i++){if(_td.wma[i]==null)continue;if(!ws){ctx.moveTo(toX(i),toY(_td.wma[i]));ws=true;}else ctx.lineTo(toX(i),toY(_td.wma[i]));} ctx.stroke();
+      // EMA
+      ctx.strokeStyle='#16a34a'; ctx.lineWidth=1.2; ctx.beginPath();
+      var es=false; for(var i=0;i<n;i++){if(_td.ema[i]==null)continue;if(!es){ctx.moveTo(toX(i),toY(_td.ema[i]));es=true;}else ctx.lineTo(toX(i),toY(_td.ema[i]));} ctx.stroke();
+      // Y labels
+      ctx.fillStyle='#666'; ctx.font='9px monospace'; ctx.textAlign='left';
+      [0,20,50,88,100].forEach(function(v){ctx.fillText(v,W-pad.right+3,toY(v)+3);});
+      if(clean){var c=ctx.getImageData(0,0,canvas.width,canvas.height);return{pad:pad,cW:cW,cH:cH,n:n,W:W,H:H,toX:toX,toY:toY,ctx:ctx,canvas:canvas,cleanImg:c,dpr:dpr};}
+    }
+    var chart = draw(true);
+    var lR=_td.rsi[n-1]!=null?_td.rsi[n-1].toFixed(1):'—';
+    var lW=_td.wma[n-1]!=null?_td.wma[n-1].toFixed(1):'—';
+    var lE=_td.ema[n-1]!=null?_td.ema[n-1].toFixed(1):'—';
+    hud.textContent = 'RSI(9): '+lR+'  WMA(21): '+lW+'  EMA(3): '+lE;
+    chart.draw = draw; chart.hud = hud;
+    chart.valAt = function(idx) {
+      return 'RSI: '+(_td.rsi[idx]!=null?_td.rsi[idx].toFixed(1):'—')+' WMA: '+(_td.wma[idx]!=null?_td.wma[idx].toFixed(1):'—')+' EMA: '+(_td.ema[idx]!=null?_td.ema[idx].toFixed(1):'—');
+    };
+    return chart;
+  }
+
+  // ── Unified vertical cursor across all panes ──
+  function _drawTradeLines(ch) {
+    if (!ch || !ch.canvas || !_btTradeDates.length || !_td.dates) return;
+    var ctx2 = ch.ctx;
+    // Build lookup: date string → index in _td.dates
+    var dateIdx = {};
+    for (var di = 0; di < _td.dates.length; di++) {
+      dateIdx[_td.dates[di].replace(/[\/\-]/g, '')] = di;
+    }
+    ctx2.lineWidth = 1.2;
+    _btTradeDates.forEach(function(t) {
+      var key = t.date.replace(/[\/\-]/g, '');
+      var idx = dateIdx[key];
+      if (idx == null) return;
+      var x = ch.toX(idx);
+      ctx2.strokeStyle = t.type === 'buy' ? '#16a34a' : '#dc2626';
+      ctx2.setLineDash([]);
+      ctx2.beginPath(); ctx2.moveTo(x, ch.pad.top); ctx2.lineTo(x, ch.pad.top + ch.cH); ctx2.stroke();
+      // Small arrow marker at top
+      ctx2.fillStyle = t.type === 'buy' ? '#16a34a' : '#dc2626';
+      ctx2.beginPath();
+      if (t.type === 'buy') {
+        ctx2.moveTo(x - 3, ch.pad.top + 8); ctx2.lineTo(x, ch.pad.top + 1); ctx2.lineTo(x + 3, ch.pad.top + 8);
+      } else {
+        ctx2.moveTo(x - 3, ch.pad.top + 1); ctx2.lineTo(x, ch.pad.top + 8); ctx2.lineTo(x + 3, ch.pad.top + 1);
+      }
+      ctx2.fill();
+    });
+  }
+
+  function _drawCursor(idx) {
+    [_tp1, _tp2].forEach(function(ch) {
+      if (!ch || !ch.canvas) return;
+      var ctx2 = ch.ctx;
+      // Restore clean chart
+      if (ch.cleanImg) ctx2.putImageData(ch.cleanImg, 0, 0);
+      // Draw buy/sell trade lines
+      _drawTradeLines(ch);
+      // Vertical cursor line
+      var x = ch.toX(idx);
+      ctx2.setLineDash([3,3]); ctx2.strokeStyle = '#333'; ctx2.lineWidth = 0.8;
+      ctx2.beginPath(); ctx2.moveTo(x, ch.pad.top); ctx2.lineTo(x, ch.pad.top+ch.cH); ctx2.stroke();
+      ctx2.setLineDash([]);
+      // Dots on each series
+      if (ch === _tp1) {
+        ctx2.fillStyle='#1a8a4a'; ctx2.beginPath(); ctx2.arc(x,ch.toY(_td.navs[idx]),3,0,Math.PI*2); ctx2.fill();
+        if(_td.sma8[idx]!=null){ctx2.fillStyle='#000';ctx2.beginPath();ctx2.arc(x,ch.toY(_td.sma8[idx]),3,0,Math.PI*2);ctx2.fill();}
+      } else if (ch === _tp2) {
+        if(_td.rsi[idx]!=null){ctx2.fillStyle='#000';ctx2.beginPath();ctx2.arc(x,ch.toY(_td.rsi[idx]),3,0,Math.PI*2);ctx2.fill();}
+        if(_td.wma[idx]!=null){ctx2.fillStyle='#e11d48';ctx2.beginPath();ctx2.arc(x,ch.toY(_td.wma[idx]),3,0,Math.PI*2);ctx2.fill();}
+        if(_td.ema[idx]!=null){ctx2.fillStyle='#16a34a';ctx2.beginPath();ctx2.arc(x,ch.toY(_td.ema[idx]),3,0,Math.PI*2);ctx2.fill();}
+      }
+    });
+    // Update all HUDs
+    if (_tp1) document.getElementById('tactical-chart-hud').textContent = _td.dates[idx]+'  '+_tp1.valAt(idx);
+    if (_tp2) document.getElementById('tactical-hm-hud').textContent = _td.dates[idx]+'  '+_tp2.valAt(idx);
+  }
+
+  function _resetCursor() {
+    [_tp1, _tp2].forEach(function(ch) {
+      if (!ch || !ch.canvas || !ch.cleanImg) return;
+      ch.ctx.putImageData(ch.cleanImg, 0, 0);
+      _drawTradeLines(ch);
+    });
+    // Reset HUDs to latest values
+    var n = _td.n;
+    if (_tp1) { var ln=_td.navs[n-1],ls=_td.sma8[n-1],ld=ls!=null?((ln-ls)/ls*100):0;
+      document.getElementById('tactical-chart-hud').textContent='NAV: '+ln.toFixed(2)+'  SMA(8): '+(ls?ls.toFixed(2):'—')+'  '+(ld>=0?'↑':'↓')+' '+Math.abs(ld).toFixed(1)+'%'; }
+    if (_tp2) { document.getElementById('tactical-hm-hud').textContent='RSI(9): '+(_td.rsi[n-1]!=null?_td.rsi[n-1].toFixed(1):'—')+'  WMA(21): '+(_td.wma[n-1]!=null?_td.wma[n-1].toFixed(1):'—')+'  EMA(3): '+(_td.ema[n-1]!=null?_td.ema[n-1].toFixed(1):'—'); }
+  }
+
+  // ── Main entry: compute everything, draw both panes, bind cursor ──
+  function _drawTacticalChart(entries, fundName, timeframe, dateRange) {
+    _btTradeDates = []; // clear old trade lines
+    // Sort oldest-first
+    var sorted = entries.slice().sort(function(a, b) {
+      var da = a.date.substring(6,10)+a.date.substring(3,5)+a.date.substring(0,2);
+      var db = b.date.substring(6,10)+b.date.substring(3,5)+b.date.substring(0,2);
+      return da < db ? -1 : da > db ? 1 : 0;
+    });
+    // Date range filter (1y/3y/5y) — 1 EXTRA YEAR DATA USED FOR CHART RENDERING ONLY
+    // The backtest still uses the exact selected period; this extra year gives
+    // visual context (SMA/RSI can 'warm up' before the period starts).
+    if (dateRange) {
+      var now = new Date();
+      var cutoff = new Date(now);
+      if (dateRange === '1y') cutoff.setFullYear(now.getFullYear() - 1);
+      else if (dateRange === '3y') cutoff.setFullYear(now.getFullYear() - 3);
+      else if (dateRange === '5y') cutoff.setFullYear(now.getFullYear() - 5);
+      // ── 1 EXTRA YEAR DATA USED FOR CHART RENDERING ONLY ──
+      cutoff.setFullYear(cutoff.getFullYear() - 1);
+      var filtered = [];
+      for (var fi = 0; fi < sorted.length; fi++) {
+        var pp = sorted[fi].date.split(/[\/\-]/);
+        var dd = new Date(parseInt(pp[2]), parseInt(pp[1]) - 1, parseInt(pp[0]));
+        if (dd.getTime() >= cutoff.getTime()) filtered.push(sorted[fi]);
+      }
+      sorted = filtered;
+    }
+    // Timeframe filter — bucket-based (matches _runBackTest resampling)
+    var data = sorted;
+    if (timeframe === 'weekly' || timeframe === 'monthly') {
+      var buckets = {};
+      sorted.forEach(function(e) {
+        var pp = e.date.split(/[\/\-]/);
+        var d = new Date(parseInt(pp[2]), parseInt(pp[1]) - 1, parseInt(pp[0]));
+        var key;
+        if (timeframe === 'weekly') {
+          var dow = d.getDay();
+          var mon = new Date(d); mon.setDate(d.getDate() - ((dow + 6) % 7));
+          key = 'W' + mon.getFullYear() + ('0'+(mon.getMonth()+1)).slice(-2) + ('0'+mon.getDate()).slice(-2);
+        } else {
+          key = pp[2] + '-' + pp[1];
+        }
+        if (!buckets[key]) buckets[key] = e;
+      });
+      data = Object.keys(buckets).sort().map(function(k) { return buckets[k]; });
+    }
+    if (data.length < 10) { document.getElementById('tactical-chart-wrap').style.display='none'; return; }
+
+    var navs = data.map(function(d){return d.nav;});
+    var dates = data.map(function(d){return d.date;});
+    var n = navs.length;
+    var sma8 = _sma(navs, 8);
+    var rsi = EE.calcRSISeries(navs, 9);
+    var wma = EE.calcWMASeries(rsi, 21);
+    var ema = EE.calcEMASeries(rsi, 3);
+
+    // Store for cursor
+    _td = { navs:navs, dates:dates, sma8:sma8, rsi:rsi, wma:wma, ema:ema, n:n, fundName:fundName, timeframe:timeframe };
+
+    // Show chart area
+    document.getElementById('tactical-chart-wrap').style.display = '';
+    document.getElementById('tactical-chart-label').textContent = fundName+'  ·  '+(timeframe.charAt(0).toUpperCase()+timeframe.slice(1))+(dateRange?'  ·  '+dateRange.toUpperCase():'')+'  ·  '+n+' bars';
+
+    // Draw both panes
+    _tp1 = _drawPane1();
+    _tp2 = _drawPane2();
+
+    // Bind unified cursor to both canvases
+    [_tp1, _tp2].forEach(function(ch) {
+      if (!ch || !ch.canvas) return;
+      ch.canvas.onmousemove = ch.canvas.ontouchmove = function(e) {
+        e.preventDefault();
+        var cx = e.touches ? e.touches[0].clientX : e.clientX;
+        var r2 = ch.canvas.getBoundingClientRect();
+        var mx = cx - r2.left;
+        var idx = Math.round(((mx - ch.pad.left) / ch.cW) * (n - 1));
+        if (idx < 0) idx = 0; if (idx >= n) idx = n - 1;
+        _drawCursor(idx);
+      };
+      ch.canvas.onmouseleave = ch.canvas.ontouchend = function() { _resetCursor(); };
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DROPDOWN CHANGE HANDLER
+  // ═══════════════════════════════════════════════════════════════════
+
+  function _onTacticalChange(which) {
+    var srcSel = document.getElementById('tactical-src');
+    var midSel = document.getElementById('tactical-mid');
+    var tgtSel = document.getElementById('tactical-tgt');
+    var tfSel  = document.getElementById('tactical-tf');
+    var stEl   = document.getElementById('tactical-status');
+
+    var displayName = null, lookupKey = null, jsonType = null;
+
+    // Render whichever dropdown was just changed
+    if (which === 'src' && srcSel && srcSel.value) {
+      displayName = srcSel.options[srcSel.selectedIndex].textContent;
+      lookupKey = srcSel.value;
+      jsonType = 'baf';
+    } else if (which === 'mid' && midSel && midSel.value) {
+      displayName = midSel.options[midSel.selectedIndex].textContent;
+      lookupKey = midSel.value;
+      jsonType = 'nps';
+    } else if (which === 'tgt' && tgtSel && tgtSel.value) {
+      displayName = tgtSel.options[tgtSel.selectedIndex].textContent;
+      lookupKey = tgtSel.value;
+      jsonType = 'nps';
+    }
+
+    if (!displayName || !jsonType) {
+      document.getElementById('tactical-chart-wrap').style.display = 'none';
+      if (stEl) stEl.textContent = '';
+      return;
+    }
+
+    var period = tfSel ? tfSel.value : 'daily';
+
+    // If same fund, just re-render with new timeframe (no re-fetch)
+    if (_lastFundName === displayName && _lastEntries) {
+      if (stEl) stEl.textContent = displayName + ' — ' + _lastEntries.length + ' days (' + period + ')';
+      _drawTacticalChart(_lastEntries, displayName, period);
+      return;
+    }
+
+    if (stEl) stEl.textContent = 'Loading ' + displayName + '...';
+
+    var loadFn = jsonType === 'baf' ? _loadBaf : _loadNps;
+
+    loadFn().then(function(json) {
+      var schemes = json.schemes || json.funds || {};
+      var fundData = schemes[lookupKey];
+      if (!fundData) {
+        var keyLower = lookupKey.toLowerCase();
+        var keys = Object.keys(schemes);
+        for (var i = 0; i < keys.length; i++) {
+          if (keys[i].toLowerCase() === keyLower) { fundData = schemes[keys[i]]; break; }
+        }
+      }
+
+      if (!fundData || !fundData.entries || fundData.entries.length < 10) {
+        if (stEl) stEl.textContent = 'No data for ' + displayName;
+        document.getElementById('tactical-chart-wrap').style.display = 'none';
+        return;
+      }
+
+      _lastEntries = fundData.entries;
+      _lastFundName = displayName;
+
+      if (stEl) stEl.textContent = displayName + ' — ' + fundData.entries.length + ' days (' + period + ')';
+      _drawTacticalChart(fundData.entries, displayName, period);
+
+    }).catch(function(e) {
+      if (stEl) stEl.textContent = 'Error: ' + (e.message || e);
+      console.warn('[Tactical]', e);
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DROPDOWN BUILD + EVENT WIRING
+  // ═══════════════════════════════════════════════════════════════════
+
+  // ── Dropdown persistence (localStorage) ──
+  var _TACTICAL_LS_KEY = 'tacticalDropdowns';
+  var _tacticalIds = ['tactical-src','tactical-mid','tactical-tgt','tactical-tf','tactical-charts','tactical-period','tactical-strategy','tactical-bt-data','tactical-bt-tf'];
+
+  function _saveTacticalState() {
+    var state = {};
+    _tacticalIds.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) state[id] = el.value;
+    });
+    try { localStorage.setItem(_TACTICAL_LS_KEY, JSON.stringify(state)); } catch(e) {}
+  }
+
+  function _restoreTacticalState() {
+    try {
+      var raw = localStorage.getItem(_TACTICAL_LS_KEY);
+      if (!raw) return;
+      var state = JSON.parse(raw);
+      _tacticalIds.forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el && state[id] !== undefined) {
+          el.value = state[id];
+        }
+      });
+    } catch(e) {}
+  }
+
+  function _buildTacticalDropdowns() {
+    if (_built) return;
+    _built = true;
+
+    // Source: BAF Funds
+    var srcSel = document.getElementById('tactical-src');
+    if (srcSel) {
+      var bafFunds = DD.BAF._funds;
+      Object.keys(bafFunds).forEach(function(amc) {
+        var fund = bafFunds[amc];
+        var opt = document.createElement('option');
+        opt.value = fund.name;
+        opt.textContent = amc + ' BAF';
+        srcSel.appendChild(opt);
+      });
+      srcSel.addEventListener('change', function() {
+        _saveTacticalState();
+        _onTacticalChange('src');
+      });
+    }
+
+    // Intermediate: NPS C (Corporate Bonds)
+    var midSel = document.getElementById('tactical-mid');
+    if (midSel) {
+      var names = DD.NPS._schemeNames, codes = DD.NPS._defaultCodes;
+      var g1 = document.createElement('optgroup'); g1.label = 'T1';
+      var g2 = document.createElement('optgroup'); g2.label = 'T2';
+      codes.forEach(function(c) {
+        var n = names[c] || c;
+        if (n.indexOf('Scheme C') === -1) return;
+        var o = document.createElement('option');
+        o.value = n; o.textContent = n.replace('[NPS] ','').replace('Scheme ','').replace('Tier II','T2').replace('Tier I','T1');
+        (n.indexOf('Tier II') !== -1 ? g2 : g1).appendChild(o);
+      });
+      if (g1.children.length) midSel.appendChild(g1);
+      if (g2.children.length) midSel.appendChild(g2);
+      midSel.addEventListener('change', function() {
+        _saveTacticalState();
+        _onTacticalChange('mid');
+      });
+    }
+
+    // Target: NPS E (Equity)
+    var tgtSel = document.getElementById('tactical-tgt');
+    if (tgtSel) {
+      var g3 = document.createElement('optgroup'); g3.label = 'T1';
+      var g4 = document.createElement('optgroup'); g4.label = 'T2';
+      codes.forEach(function(c) {
+        var n = names[c] || c;
+        if (n.indexOf('Scheme E') === -1) return;
+        var o = document.createElement('option');
+        o.value = n; o.textContent = n.replace('[NPS] ','').replace('Scheme ','').replace('Tier II','T2').replace('Tier I','T1');
+        (n.indexOf('Tier II') !== -1 ? g4 : g3).appendChild(o);
+      });
+      if (g3.children.length) tgtSel.appendChild(g3);
+      if (g4.children.length) tgtSel.appendChild(g4);
+      tgtSel.addEventListener('change', function() {
+        _saveTacticalState();
+        _onTacticalChange('tgt');
+      });
+    }
+
+    // Timeframe: re-render with cached data (no re-fetch)
+    var tfSel = document.getElementById('tactical-tf');
+    if (tfSel) {
+      tfSel.addEventListener('change', function() {
+        _saveTacticalState();
+        if (_lastEntries && _lastFundName) {
+          var stEl = document.getElementById('tactical-status');
+          // Pass period so chart data is filtered to the selected range
+          var periodSel = document.getElementById('tactical-period');
+          var period = periodSel ? periodSel.value : null;
+          if (stEl) stEl.textContent = _lastFundName + ' — ' + _lastEntries.length + ' days (' + tfSel.value + ')';
+          _drawTacticalChart(_lastEntries, _lastFundName, tfSel.value, period);
+        }
+      });
+    }
+
+    // Charts: quick-switch view between Source/Intermediate/Target
+    var chartsSel = document.getElementById('tactical-charts');
+    if (chartsSel) {
+      chartsSel.addEventListener('change', function() {
+        _saveTacticalState();
+        var srcS = document.getElementById('tactical-src');
+        var midS = document.getElementById('tactical-mid');
+        var tgtS = document.getElementById('tactical-tgt');
+        var tf = document.getElementById('tactical-tf');
+        var period = tf ? tf.value : 'daily';
+        var displayName = null, lookupKey = null, jsonType = null;
+
+        if (chartsSel.value === 'src' && srcS && srcS.value) {
+          displayName = srcS.options[srcS.selectedIndex].textContent;
+          lookupKey = srcS.value;
+          jsonType = 'baf';
+        } else if (chartsSel.value === 'mid' && midS && midS.value) {
+          displayName = midS.options[midS.selectedIndex].textContent;
+          lookupKey = midS.value;
+          jsonType = 'nps';
+        } else if (chartsSel.value === 'tgt' && tgtS && tgtS.value) {
+          displayName = tgtS.options[tgtS.selectedIndex].textContent;
+          lookupKey = tgtS.value;
+          jsonType = 'nps';
+        }
+
+        if (!displayName || !jsonType) {
+          var stEl = document.getElementById('tactical-status');
+          if (stEl) stEl.textContent = 'Select a fund first';
+          chartsSel.value = '';
+          return;
+        }
+
+        // If same fund, just re-render with current period
+        if (_lastFundName === displayName && _lastEntries) {
+          _drawTacticalChart(_lastEntries, displayName, period);
+          return;
+        }
+
+        var stEl = document.getElementById('tactical-status');
+        if (stEl) stEl.textContent = 'Loading ' + displayName + '...';
+
+        var loadFn = jsonType === 'baf' ? _loadBaf : _loadNps;
+        loadFn().then(function(json) {
+          var schemes = json.schemes || json.funds || {};
+          var fundData = schemes[lookupKey];
+          if (!fundData) {
+            var ln = lookupKey.toLowerCase();
+            Object.keys(schemes).forEach(function(k) {
+              if (k.toLowerCase() === ln) fundData = schemes[k];
+            });
+          }
+          if (!fundData || !fundData.entries || fundData.entries.length < 10) {
+            if (stEl) stEl.textContent = 'No data for ' + displayName;
+            return;
+          }
+          _lastEntries = fundData.entries;
+          _lastFundName = displayName;
+          if (stEl) stEl.textContent = displayName + ' — ' + fundData.entries.length + ' days (' + period + ')';
+          _drawTacticalChart(fundData.entries, displayName, period);
+        }).catch(function(e) {
+          if (stEl) stEl.textContent = 'Error: ' + (e.message || e);
+        });
+      });
+    }
+
+    // Strategy dropdown — re-run backtest on change
+    var stratSel = document.getElementById('tactical-strategy');
+    if (stratSel) {
+      stratSel.addEventListener('change', function() {
+        _saveTacticalState();
+        if (_btEntries && _btFundName) {
+          var btTf = document.getElementById('tactical-bt-tf');
+          _runBackTest(_btFundName, btTf ? btTf.value : 'weekly');
+        }
+      });
+    }
+
+    // Period dropdown — re-draw chart + re-run backtest on change
+    var periodSel = document.getElementById('tactical-period');
+    if (periodSel) {
+      periodSel.addEventListener('change', function() {
+        _saveTacticalState();
+        if (_btEntries && _btFundName) {
+          var btTf = document.getElementById('tactical-bt-tf');
+          var btSrc = document.getElementById('tactical-bt-data');
+          var tf = btTf ? btTf.value : 'weekly';
+          _drawTacticalChart(_btEntries, _btFundName, tf, periodSel.value);
+          _runBackTest(_btFundName, tf);
+          _resetCursor();
+        }
+      });
+    }
+
+    // BT Data dropdown — no auto-run, user clicks Run
+    // BT TF dropdown — re-draw chart + re-run backtest on change
+    var btTfSel = document.getElementById('tactical-bt-tf');
+    if (btTfSel) {
+      btTfSel.addEventListener('change', function() {
+        _saveTacticalState();
+        if (_btEntries && _btFundName) {
+          var periodSel = document.getElementById('tactical-period');
+          var btPeriod = periodSel ? periodSel.value : '3y';
+          _drawTacticalChart(_btEntries, _btFundName, btTfSel.value, btPeriod);
+          _runBackTest(_btFundName, btTfSel.value);
+          _resetCursor();
+        }
+      });
+    }
+
+    // ── Restore persisted dropdown selections ──
+    _restoreTacticalState();
+    // Auto-render chart from saved selection
+    var chartsSel = document.getElementById('tactical-charts');
+    if (chartsSel && chartsSel.value) {
+      _onTacticalChange(chartsSel.value);
+    }
+  }
+
+  // Lazy-init
+  window.onTacticalTabActivated = function() {
+    if (DD && DD.NPS && DD.BAF) { _buildTacticalDropdowns(); }
+    else {
+      var st = document.getElementById('tactical-status');
+      if (st) st.textContent = 'Data not loaded yet. Click DL first.';
+    }
+  };
+
+  // ── BackTest Logic ──
+
+  function _filterByPeriod(entries, period) {
+    if (!entries || !entries.length) return [];
+    var now = new Date();
+    var cutoff = new Date(now);
+    if (period === '1y') cutoff.setFullYear(now.getFullYear() - 1);
+    else if (period === '3y') cutoff.setFullYear(now.getFullYear() - 3);
+    else if (period === '5y') cutoff.setFullYear(now.getFullYear() - 5);
+    var cutStr = cutoff.getTime();
+    var result = [];
+    for (var i = entries.length - 1; i >= 0; i--) {
+      var e = entries[i];
+      var parts = e.date.split(/[\/\-]/);
+      var d = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+      if (d.getTime() >= cutStr) result.unshift(e);
+    }
+    return result;
+  }
+
+  function _fmtNav(v) { return v != null ? v.toFixed(2) : '—'; }
+
+  function _runBackTest(fundName, btTf) {
+    try {
+    var wrap = document.getElementById('tactical-bt-wrap');
+    var body = document.getElementById('tactical-bt-body');
+    if (!wrap || !body) { console.warn('[BT] no wrap/body'); return; }
+    var entries = _btEntries || _lastEntries;
+    var displayName = fundName || _btFundName || _lastFundName || 'Unknown';
+    if (!entries || !entries.length) { wrap.style.display = 'none'; console.warn('[BT] no entries'); return; }
+
+    var periodSel = document.getElementById('tactical-period');
+    var btPeriod = periodSel ? periodSel.value : '3y';
+    var stratSel = document.getElementById('tactical-strategy');
+    var btMode = stratSel ? stratSel.value : 'sms';
+    var timeframe = btTf || 'weekly';
+
+    var minBars = timeframe === 'monthly' ? 6 : timeframe === 'weekly' ? 10 : 20;
+    var filtered = _filterByPeriod(entries, btPeriod);
+    if (filtered.length < minBars) { wrap.style.display = 'none'; return; }
+
+    // Convert to weekly/monthly if needed
+    if (timeframe === 'weekly' || timeframe === 'monthly') {
+      var buckets = {};
+      var sorted = filtered.slice().sort(function(a, b) {
+        var pa = a.date.split(/[\/\-]/), pb = b.date.split(/[\/\-]/);
+        var ka = pa[2] + pa[1] + pa[0], kb = pb[2] + pb[1] + pb[0];
+        return ka < kb ? -1 : ka > kb ? 1 : 0;
+      });
+      sorted.forEach(function(e) {
+        var p = e.date.split(/[\/\-]/);
+        var d = new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0]));
+        var key;
+        if (timeframe === 'weekly') {
+          var dayOfWeek = d.getDay();
+          var monday = new Date(d);
+          monday.setDate(d.getDate() - ((dayOfWeek + 6) % 7));
+          key = 'W' + monday.getFullYear() + ('0' + (monday.getMonth() + 1)).slice(-2) + ('0' + monday.getDate()).slice(-2);
+        } else {
+          key = p[2] + '-' + p[1];
+        }
+        if (!buckets[key]) buckets[key] = e;
+      });
+      filtered = Object.keys(buckets).sort().map(function(k) { return buckets[k]; });
+      if (filtered.length < minBars) { wrap.style.display = 'none'; return; }
+    }
+
+    // Compute indicators
+    var navs = filtered.map(function(e) { return e.nav; });
+    // SMA series (not exported by EE)
+    var sma8 = new Array(navs.length).fill(null);
+    for (var si = 7; si < navs.length; si++) {
+      var sum = 0; for (var sj = si - 7; sj <= si; sj++) sum += navs[sj];
+      sma8[si] = sum / 8;
+    }
+    var rsi = EE.calcRSISeries(navs, 9);
+    var wma = EE.calcWMASeries(navs, 21);
+    var ema = EE.calcEMASeries(navs, 3);
+
+    // ── Generate trades for a given mode (returns [{ret, buyDate, sellDate}]) ──
+    function _btSignals(mode) {
+      var out = [], holding = false, buyIdx = 0;
+      for (var i = 1; i < filtered.length; i++) {
+        if (!holding) {
+          var b = false;
+          if (mode === 'sms') b = sma8[i] != null && sma8[i-1] != null && navs[i-1] <= sma8[i-1] && navs[i] > sma8[i];
+          else if (mode === 'hm') b = rsi[i] != null && rsi[i-1] != null && rsi[i-1] <= 50 && rsi[i] > 50;
+          if (b) { holding = true; buyIdx = i; }
+        } else {
+          var s = false;
+          if (mode === 'sms') s = sma8[i] != null && sma8[i-1] != null && navs[i-1] >= sma8[i-1] && navs[i] < sma8[i];
+          else if (mode === 'hm') s = rsi[i] != null && rsi[i-1] != null && rsi[i-1] >= 50 && rsi[i] < 50;
+          if (s || i === filtered.length - 1) {
+            holding = false;
+            var buyNav = navs[buyIdx], sellNav = navs[i];
+            var ret = ((sellNav - buyNav) / buyNav) * 100;
+            var bd = filtered[buyIdx].date.split(/[\/\-]/);
+            var sd = filtered[i].date.split(/[\/\-]/);
+            var d1 = new Date(parseInt(bd[2]), parseInt(bd[1])-1, parseInt(bd[0]));
+            var d2 = new Date(parseInt(sd[2]), parseInt(sd[1])-1, parseInt(sd[0]));
+            var diffDays = Math.round((d2.getTime() - d1.getTime()) / 86400000);
+            var periodLabel;
+            if (diffDays >= 365) { var y = Math.floor(diffDays/365); periodLabel = y + 'Y ' + Math.round((diffDays % 365)/30) + 'M'; }
+            else if (diffDays >= 30) { periodLabel = Math.round(diffDays/30) + 'M'; }
+            else { periodLabel = diffDays + 'D'; }
+            out.push({ buyDate: filtered[buyIdx].date, buyNav: buyNav, sellDate: filtered[i].date, sellNav: sellNav, ret: ret, period: periodLabel });
+          }
+        }
+      }
+      return out;
+    }
+    function _compounded(trades) {
+      if (!trades.length) return 0;
+      var sum = 0;
+      for (var j = 0; j < trades.length; j++) sum += trades[j].ret;
+      return sum;
+    }
+
+    // ── Run 8SMA and HM strategies ──
+    var _allRet = {};
+    _allRet['sms'] = _compounded(_btSignals('sms'));
+    _allRet['hm']  = _compounded(_btSignals('hm'));
+
+    // ── Parking: returns earned in Corporate Bond fund during gap between sell → next buy ──
+    // Uses the NPS C (Corporate Bonds) fund selected in the "NPS Bonds" dropdown (Row 1)
+    // ONLY displayed in the table title — no buy/sell rows for parking.
+    // Called asynchronously after _loadNps() resolves.
+    function _computeParking(mode, cbEntries) {
+      var trades = _btSignals(mode);
+      if (trades.length < 2 || !cbEntries || !cbEntries.length) return 0;
+      // Build date→NAV lookup (DD-MM-YYYY → nav)
+      var navMap = {};
+      for (var ci = 0; ci < cbEntries.length; ci++) {
+        var ce = cbEntries[ci];
+        navMap[ce.date] = ce.nav;
+      }
+      // For each pair of consecutive trades, compute parking return:
+      // sellDate of trade[i] → buyDate of trade[i+1]
+      var totalParking = 0;
+      for (var pi = 0; pi < trades.length - 1; pi++) {
+        var sellDate = trades[pi].sellDate;
+        var nextBuyDate = trades[pi + 1].buyDate;
+        var sellNav = navMap[sellDate];
+        var buyNav = navMap[nextBuyDate];
+        if (sellNav != null && buyNav != null && sellNav > 0) {
+          totalParking += ((buyNav - sellNav) / sellNav) * 100;
+        }
+      }
+      return totalParking;
+    }
+
+    // ── Load corporate bond fund and compute parking, then render summary ──
+    function _renderSummaryWithParking(cbEntries) {
+      var _parkRet = {};
+      _parkRet['sms'] = _computeParking('sms', cbEntries);
+      _parkRet['hm']  = _computeParking('hm', cbEntries);
+
+      // ── Render summary totals (8SMA + HM + Parking) in table title ──
+      var summaryEl = document.getElementById('tactical-bt-summary');
+      if (summaryEl) {
+        function _fmtRet(v) { var s = v >= 0 ? '+' : ''; return s + v.toFixed(1) + '%'; }
+        function _span(label, val) { var c = val >= 0 ? '#16a34a' : '#dc2626'; return '<span style="font-size:9px;color:' + c + ';">' + label + ': ' + _fmtRet(val) + '</span>'; }
+        var html2 = '<div style="margin-top:2px;line-height:1.6;">'
+          + _span('8SMA', _allRet['sms']) + '  ' + _span('Parking 8SMA', _parkRet['sms'])
+          + '<br>'
+          + _span('HM', _allRet['hm']) + '  ' + _span('Parking HM', _parkRet['hm'])
+          + '</div>';
+        summaryEl.innerHTML = html2;
+      }
+    }
+    var trades = _btSignals(btMode);
+    _btTradeDates = [];
+    for (var ti = 0; ti < trades.length; ti++) {
+      _btTradeDates.push({ date: trades[ti].buyDate, type: 'buy' });
+      _btTradeDates.push({ date: trades[ti].sellDate, type: 'sell' });
+    }
+
+    // ── Load Corporate Bond fund for parking, then render summary + table ──
+    var midSel = document.getElementById('tactical-mid');
+    var midKey = midSel ? midSel.value : null;
+    if (midKey) {
+      _loadNps().then(function(json) {
+        var schemes = json.schemes || {};
+        var cbData = schemes[midKey];
+        if (!cbData) {
+          var kl = midKey.toLowerCase();
+          var ks = Object.keys(schemes);
+          for (var i = 0; i < ks.length; i++) { if (ks[i].toLowerCase() === kl) { cbData = schemes[ks[i]]; break; } }
+        }
+        _renderSummaryWithParking(cbData ? cbData.entries : null);
+      }).catch(function() { _renderSummaryWithParking(null); });
+    } else {
+      _renderSummaryWithParking(null);
+    }
+
+    // Render table
+    var _months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    function _shortDate(d) { var p = d.split(/[\/\-]/); return parseInt(p[0]) + ' ' + _months[parseInt(p[1])-1] + ' ' + p[2].slice(-2); }
+    var html = '';
+    if (trades.length === 0) {
+      html = '<tr><td colspan="6" style="padding:10px;text-align:center;color:#999;">No trades generated for this period</td></tr>';
+    }
+    for (var t = 0; t < trades.length; t++) {
+      var tr = trades[t];
+      var buyLabel = _shortDate(tr.buyDate);
+      var sellLabel = _shortDate(tr.sellDate);
+      var retColor = tr.ret >= 0 ? '#16a34a' : '#dc2626';
+      var retSign = tr.ret >= 0 ? '+' : '';
+      html += '<tr style="border-bottom:1px solid #f0f0f0;">'
+        + '<td style="padding:3px 4px;text-align:left;color:#333;white-space:nowrap;">' + buyLabel + '</td>'
+        + '<td style="padding:3px 4px;text-align:right;color:#333;">' + _fmtNav(tr.buyNav) + '</td>'
+        + '<td style="padding:3px 4px;text-align:left;color:#333;white-space:nowrap;">' + sellLabel + '</td>'
+        + '<td style="padding:3px 4px;text-align:right;color:#333;">' + _fmtNav(tr.sellNav) + '</td>'
+        + '<td style="padding:3px 4px;text-align:right;font-weight:700;color:' + retColor + ';">' + retSign + tr.ret.toFixed(1) + '%</td>'
+        + '<td style="padding:3px 4px;text-align:right;color:#666;">' + tr.period + '</td>'
+        + '</tr>';
+    }
+    body.innerHTML = html;
+    wrap.style.display = 'block';
+    // Draw trade lines on charts immediately
+    _resetCursor();
+    } catch(e) { console.error('[BT] error:', e); }
+  }
+
+  // Backtest entries cache (set by _tacticalBacktestClick before calling _runBackTest)
+  var _btEntries = null;
+  var _btFundName = '';
+  var _btTradeDates = []; // [{date:'DD-MM-YYYY', type:'buy'|'sell'}, ...]
+
+  window._tacticalBacktestClick = function() {
+    var st = document.getElementById('tactical-status');
+    var btDataSel = document.getElementById('tactical-bt-data');
+    var btTfSel = document.getElementById('tactical-bt-tf');
+    var stratSel = document.getElementById('tactical-strategy');
+    var mode = stratSel ? stratSel.value : 'sms';
+    var btSrc = btDataSel ? btDataSel.value : 'src';
+    var btTf = btTfSel ? btTfSel.value : 'daily';
+
+    // Which dropdown to read + which loader to use
+    var fundSel;
+    var loadFn;
+    if (btSrc === 'src') { fundSel = document.getElementById('tactical-src'); loadFn = _loadBaf; }
+    else if (btSrc === 'mid') { fundSel = document.getElementById('tactical-mid'); loadFn = _loadNps; }
+    else { fundSel = document.getElementById('tactical-tgt'); loadFn = _loadNps; }
+
+    if (!fundSel || !fundSel.value) {
+      if (st) st.textContent = 'Select a fund in the ' + (btSrc === 'src' ? 'BAF Source' : btSrc === 'mid' ? 'NPS Bonds' : 'Target NPS') + ' dropdown';
+      return;
+    }
+
+    var lookupKey = fundSel.value;
+    var displayName = fundSel.options[fundSel.selectedIndex].textContent;
+
+    if (st) st.textContent = 'Loading ' + displayName + ' for BackTest...';
+
+    loadFn().then(function(json) {
+      var schemes = json.schemes || json.funds || {};
+      var fundData = schemes[lookupKey];
+      if (!fundData) {
+        var ln = lookupKey.toLowerCase();
+        Object.keys(schemes).forEach(function(k) {
+          if (k.toLowerCase() === ln) fundData = schemes[k];
+        });
+      }
+      if (!fundData || !fundData.entries || fundData.entries.length < 10) {
+        if (st) st.textContent = 'No data for ' + displayName;
+        return;
+      }
+      _btEntries = fundData.entries;
+      _btFundName = displayName;
+      var periodSel = document.getElementById('tactical-period');
+      var btPeriod = periodSel ? periodSel.value : '3y';
+      // Redraw chart with the backtest date range
+      _drawTacticalChart(fundData.entries, displayName, btTf, btPeriod);
+      _runBackTest(displayName, btTf);
+      // Re-apply trade lines since _drawTacticalChart cleared them
+      _resetCursor();
+      var modeLabel = mode === 'sms' ? '8SMA' : mode === 'hm' ? 'HM' : mode.toUpperCase();
+      if (st) st.textContent = displayName + ' — BackTest (' + modeLabel + ', ' + btTf + ')';
+    }).catch(function(e) {
+      console.warn('[BackTest] error:', e);
+      _btEntries = null;
+      if (st) st.textContent = 'Error: ' + (e.message || e);
+    });
+  };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 15: NPS + BAF 2500-DAY DAILY DATA DOWNLOADER
+// ═══════════════════════════════════════════════════════════════════════════════
+// PURPOSE:
+//   Fetches the FULL NAV history for all NPS schemes (32 codes across
+//   8 AMCs) and all Balanced Advantage Funds (4 funds), keeps the latest
+//   2500 daily entries per fund, and triggers browser downloads of two
+//   standalone JSON files:
+//
+//     NPSData2500.json   — 32 NPS schemes (HDFC/ICICI/KOTAK/ABSL/SBI/TATA/AXIS/DSP)
+//     BAFData2500.json   — 4 BAF funds   (HDFC/ICICI/KOTAK/ABSL)
+//
+// DATA SOURCES (direct fetch — no CORS proxy needed):
+//   NPS: https://npsnav.in/api/historical/{code}  → [{date:'DD-MM-YYYY', nav:Number}, ...]
+//   BAF: https://api.mfapi.in/mf/{code}           → {data:[{date:'DD-MM-YYYY', nav:Number}, ...]}
+//   Both APIs return data newest-first. We slice(0, 2500) to keep the latest.
+//
+// OUTPUT FORMAT (both files share this structure):
+//   {
+//     "generated": "ISO timestamp",
+//     "target": 2500,
+//     "description": "...",
+//     "schemes"|"funds": {
+//       "Fund Name": {
+//         "code": "API code",
+//         "totalAvailable": N,   ← total records returned by API
+//         "entries": [           ← kept up to 2500, newest-first
+//           { "date": "DD-MM-YYYY", "nav": 54.0778 },
+//           ...
+//         ]
+//       }
+//     }
+//   }
+//
+// AUDIT NOTES (verified 2026-07-18):
+//   NPS: 16/32 schemes have 2500+ (OK). ABSL has 2229 (started May 2017).
+//        TATA has only 30 records (API appears dead — data from Apr-Jul 2014 only).
+//        AXIS has 951 (started Aug 2022). DSP has 629 (Sep 2022 → Apr 2025).
+//   BAF: HDFC/ICICI/ABSL all have 2500+ (OK). KOTAK has 1949 (launched Aug 2018).
+//   Partial counts are API limitations, not code bugs.
+//
+// ENTRY POINTS:
+//   1. downloadData() — DL button auto-triggers this BEFORE fetchDeepWeeklyHistory
+//   2. ptRunScan()    — Analyze button runs this as Step -1 (fallback, in case
+//                       DL was skipped)
+//   3. Manual: window.downloadNPSBAF2500() from browser console
+//
+// DEPENDENCIES:
+//   - Container DD (DD.NPS, DD.BAF) — scheme codes, names, URLs
+//   - No IndexedDB — this is a standalone export, not a cache
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function downloadNPSBAF2500(logFn) {
+
+  // ── Configuration ──
+  var _log = logFn || function(m){ console.log('[DL-2500]', m); };
+  var TARGET = 2500;  // max entries to keep per fund
+
+  // ── Helper: trigger browser download of a JS object as .json file ──
+  function _dlJson(obj, filename) {
+    var blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function() { URL.revokeObjectURL(url); a.remove(); }, 5000);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PART A: NPS — 32 schemes from npsnav.in
+  // ═══════════════════════════════════════════════════════════════════
+  // Fetches each scheme's full NAV history directly from npsnav.in
+  // (no CORS proxy needed — server sends its own CORS headers).
+  // Scheme codes and human-readable names come from DD.NPS._defaultCodes
+  // and DD.NPS._schemeNames (defined in Container DD, Section 1).
+  // Sequential fetch with 150ms delay to avoid hammering the API.
+  // ═══════════════════════════════════════════════════════════════════
+  _log('Starting NPS 2500-day download (32 schemes across 8 AMCs)...');
+  var npsCodes  = DD.NPS._defaultCodes;   // 32 scheme codes
+  var npsNames  = DD.NPS._schemeNames;    // code → human-readable name
+  var npsUrl    = DD.NPS._url;            // 'https://npsnav.in/api/historical/'
+  var npsResult = {};                     // { "Scheme Name": {code, totalAvailable, entries} }
+
+  for (var ni = 0; ni < npsCodes.length; ni++) {
+    var code = npsCodes[ni];
+    var name = npsNames[code] || code;
+    try {
+      var resp = await fetch(npsUrl + code);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      var json = await resp.json();
+      // Handle both bare array and {data:[...]} response shapes
+      var rows = Array.isArray(json) ? json : (json && Array.isArray(json.data) ? json.data : []);
+      // Parse and filter: keep only valid {date, nav} records
+      var parsed = rows.map(function(r) {
+        return { date: r.date, nav: parseFloat(r.nav) };
+      }).filter(function(r) { return !isNaN(r.nav) && r.nav > 0; });
+      // APIs return newest-first → slice(0, 2500) keeps the LATEST 2500 days
+      var kept = parsed.slice(0, TARGET);
+      npsResult[name] = {
+        code: code,
+        totalAvailable: parsed.length,
+        entries: kept
+      };
+      _log('  ' + name + ' — ' + parsed.length + ' total, kept ' + kept.length);
+    } catch (e) {
+      npsResult[name] = { code: code, totalAvailable: 0, entries: [], error: e.message || String(e) };
+      _log('  FAILED: ' + name + ' — ' + (e.message || e));
+    }
+    // 150ms delay between calls to avoid hammering the API
+    await new Promise(function(r) { setTimeout(r, 150); });
+  }
+
+  // ── Save NPSData2500.json ──
+  var npsExport = {
+    generated: new Date().toISOString(),
+    target: TARGET,
+    description: 'NPS scheme NAV history — latest 2500 daily entries per scheme. Partial counts are API limitations (ABSL started May 2017, AXIS Aug 2022, TATA appears dead).',
+    schemes: npsResult
+  };
+  _dlJson(npsExport, 'NPSData2500.json');
+  _log('NPSData2500.json downloaded — ' + Object.keys(npsResult).length + ' schemes');
+
+  // ═══════════════════════════════════════════════════════════════════
+  // PART B: BAF — 4 Balanced Advantage Funds from mfapi.in
+  // ═══════════════════════════════════════════════════════════════════
+  // Fetches each fund's full NAV history directly from mfapi.in
+  // (no CORS proxy needed — server sends its own CORS headers).
+  // Fund codes come from DD.BAF._funds (defined in Container DD).
+  // Same sequential + 150ms delay pattern as NPS above.
+  // ═══════════════════════════════════════════════════════════════════
+  _log('Starting BAF 2500-day download (4 Balanced Advantage Funds)...');
+  var bafFunds   = DD.BAF._funds;    // { HDFC: {name, code}, ICICI: ... }
+  var bafUrl     = DD.BAF._url;      // 'https://api.mfapi.in/mf/'
+  var bafResult  = {};               // { "Fund Name": {amc, code, totalAvailable, entries} }
+
+  var bafKeys = Object.keys(bafFunds);
+  for (var bi = 0; bi < bafKeys.length; bi++) {
+    var amc   = bafKeys[bi];
+    var fund  = bafFunds[amc];
+    var fname = fund.name;
+    var fcode = fund.code;
+    try {
+      var bresp = await fetch(bafUrl + fcode);
+      if (!bresp.ok) throw new Error('HTTP ' + bresp.status);
+      var bjson = await bresp.json();
+      var brows = Array.isArray(bjson) ? bjson : (bjson && Array.isArray(bjson.data) ? bjson.data : []);
+      var bparsed = brows.map(function(r) {
+        return { date: r.date, nav: parseFloat(r.nav) };
+      }).filter(function(r) { return !isNaN(r.nav) && r.nav > 0; });
+      var bkept = bparsed.slice(0, TARGET);
+      bafResult[fname] = {
+        amc: amc,
+        code: fcode,
+        totalAvailable: bparsed.length,
+        entries: bkept
+      };
+      _log('  ' + fname + ' — ' + bparsed.length + ' total, kept ' + bkept.length);
+    } catch (e) {
+      bafResult[fname] = { amc: amc, code: fcode, totalAvailable: 0, entries: [], error: e.message || String(e) };
+      _log('  FAILED: ' + fname + ' — ' + (e.message || e));
+    }
+    await new Promise(function(r) { setTimeout(r, 150); });
+  }
+
+  // ── Save BAFData2500.json ──
+  var bafExport = {
+    generated: new Date().toISOString(),
+    target: TARGET,
+    description: 'Balanced Advantage Fund NAV history — latest 2500 daily entries per fund. KOTAK partial (1949) because fund launched Aug 2018.',
+    funds: bafResult
+  };
+  _dlJson(bafExport, 'BAFData2500.json');
+  _log('BAFData2500.json downloaded — ' + Object.keys(bafResult).length + ' funds');
+
+  return { nps: npsResult, baf: bafResult };
+}
+
+// Expose globally so downloadData(), ptRunScan(), and console can call it
+window.downloadNPSBAF2500 = downloadNPSBAF2500;
+
 </script>
 </body>
 </html>
