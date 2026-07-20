@@ -755,8 +755,7 @@ th.ha-sep,td.ha-sep{border-left:3px solid var(--orange)!important}
 <input type="file" id="ld-restore-input" accept="application/json,.json" style="display:none" onchange="ldOnRestoreFileChosen(event)">
 <div id="pt-controls-row" style="display:flex;flex-wrap:wrap;gap:5px;margin:8px 0;align-items:stretch">
   <button onclick="ldExportAllData(false)" title="Save all scanner data to Timeline.json" style="background:#333;color:#fff;border:none;padding:6px 6px;cursor:pointer;font-weight:bold;font-size:9px;border-radius:4px;white-space:nowrap;flex:1 1 0;min-width:0">💾 Save</button>
-  <button onclick="ldImportAllData()" title="Restore from Timeline.json" style="background:#333;color:#fff;border:none;padding:6px 6px;cursor:pointer;font-weight:bold;font-size:9px;border-radius:4px;white-space:nowrap;flex:1 1 0;min-width:0">📂 Restore</button>
-  <button id="pt-btn-download" onclick="PSnap.downloadData()" title="Download 2500 days of raw NSE history (sequential)" style="background:#d4880f;color:#fff;border:none;padding:6px 6px;cursor:pointer;font-weight:bold;font-size:9px;border-radius:4px;white-space:nowrap;flex:1 1 0;min-width:0">⚡ DL</button>
+  <button onclick="ldImportAllData()" title="Restore: auto-checks your linked Timeline.json first, otherwise asks you to pick a file" style="background:#333;color:#fff;border:none;padding:6px 6px;cursor:pointer;font-weight:bold;font-size:9px;border-radius:4px;white-space:nowrap;flex:1 1 0;min-width:0">📂 Restore</button>
   <button id="pt-btn-download-fast" onclick="PSnap.downloadDataFast()" title="Download 2500 days using parallel fetches (10-20x faster)" style="background:#cc5500;color:#fff;border:none;padding:6px 6px;cursor:pointer;font-weight:bold;font-size:9px;border-radius:4px;white-space:nowrap;flex:1 1 0;min-width:0">⚡ DL Fast</button>
   <button id="pt-btn-restart-fresh" onclick="PSnap.restartFreshDownload()" title="Clear all saved download progress and start over from day 1. Deleting the checkpoint .json files in your Downloads folder does NOT do this — those are backup exports only, never read back by the app." style="background:#7a1f1f;color:#fff;border:none;padding:6px 6px;cursor:pointer;font-weight:bold;font-size:9px;border-radius:4px;white-space:nowrap;flex:1 1 0;min-width:0">🗑️ Restart</button>
   <button class="ld-scan-btn" onclick="if(typeof window.ptRunScan==='function')window.ptRunScan()" title="Download 2500 days of NSE data + analyze" style="background:#d4880f;color:#fff;border:none;padding:6px 6px;cursor:pointer;font-weight:bold;font-size:9px;border-radius:4px;white-space:nowrap;flex:1 1 0;min-width:0">⚡ Analyze</button>
@@ -1950,12 +1949,24 @@ var BB = (function() {
   }
 
   function hmTfDays(val) {
-    if (val === undefined) return parseInt(get('hm_tf_days_v2')) || 99999;
+    // BUG FIX / feature request: previously a never-configured session
+    // fell back to 99999 days (~effectively "all available") at DAILY
+    // granularity by default — expensive to render and not the timeframe
+    // the person actually wants to see first. First-time default is now
+    // WEEKLY candles over 3 years (1095 days), matching what's actually
+    // useful to look at on first open. Anyone who has ever picked a
+    // timeframe still gets exactly that saved value back, unaffected.
+    if (val === undefined) {
+      var raw = get('hm_tf_days_v2');
+      return raw === null ? 1095 : (parseInt(raw) || 1095);
+    }
     return set('hm_tf_days_v2', val);
   }
 
   function hmPeriod(val) {
-    if (val === undefined) return get('hm_period_v2') || 'daily';
+    // See hmTfDays above — same first-time-default rationale, paired
+    // change: 'daily' → 'weekly' as the true first-run default.
+    if (val === undefined) return get('hm_period_v2') || 'weekly';
     return set('hm_period_v2', val);
   }
 
@@ -2225,11 +2236,29 @@ var CC = (function() {
     } catch (e) { return null; }
   }
 
+  // BUG FIX (restore-then-reload race): deepOpen() caches its connection in
+  // _deepDb and never closes it anywhere. When a backup restore finishes and
+  // reloads the page ~400ms later, this tab's still-open connection to
+  // 'nse_deep_v4' can still be alive during teardown. The new page load's
+  // own indexedDB.open('nse_deep_v4', 2) call then collides with it, fires
+  // onblocked, and (after the 3s timeout in deepOpen) resolves null — so the
+  // fresh page reads an EMPTY cache right after a restore that had genuinely
+  // written the data. That's exactly the "restore doesn't restore, asks to
+  // download again" symptom. Call this right before reload to release the
+  // connection so the next page load's open() isn't blocked by it.
+  function deepCloseConnection() {
+    if (_deepDb) {
+      try { _deepDb.close(); } catch(e) {}
+      _deepDb = null;
+    }
+  }
+
   return {
     deepOpen: deepOpen,
     deepGet: deepGet,
     deepPut: deepPut,
     deepDelete: deepDelete,
+    deepCloseConnection: deepCloseConnection,
     getLastDeepPutError: function() { return _lastDeepPutError; },
     catMapGet: catMapGet,
     catMapPut: catMapPut,
@@ -2563,65 +2592,110 @@ async function ldLoadHandle() { return CC.backupLoadHandle(); }
 // write if a file is already linked AND permission is already granted —
 // it never opens a picker or a permission prompt (both need a user click).
 async function ldExportAllData(silent) {
-  const payload = await ldBuildBackupPayload();
-  const json = JSON.stringify(payload);
-  const fsaSupported = typeof window.showSaveFilePicker === 'function';
-
-  if (fsaSupported) {
-    try {
-      let handle = await ldLoadHandle();
-      if (handle) {
-        let perm = await handle.queryPermission({ mode: 'readwrite' });
-        if (perm !== 'granted' && !silent) {
-          perm = await handle.requestPermission({ mode: 'readwrite' });
-        }
-        if (perm !== 'granted') handle = null; // not usable: silent gives up, non-silent falls through to the picker below
-      }
-      if (!handle && !silent) {
-        handle = await window.showSaveFilePicker({
-          suggestedName: LD_BACKUP_FILENAME,
-          types: [{ description: 'JSON backup', accept: { 'application/json': ['.json'] } }]
-        });
-        await ldSaveHandle(handle);
-      }
-      if (handle) {
-        const writable = await handle.createWritable();
-        await writable.write(json);
-        await writable.close();
-        BB.backupLastDate(ldTodayIstStr());
-        if (!silent) ldShowBackupMsg(`✓ Saved ${payload.keyCount} keys → ${handle.name || LD_BACKUP_FILENAME}`);
-        return true;
-      }
-    } catch (e) {
-      if (e && e.name === 'AbortError') return false; // user closed the picker
-      console.warn('[LD] File System Access save failed, falling back to download', e);
-    }
-  }
-
-  if (silent) return false; // never trigger a download without a click
-
   try {
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = LD_BACKUP_FILENAME;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-    BB.backupLastDate(ldTodayIstStr());
-    ldShowBackupMsg(`✓ Saved ${payload.keyCount} keys to ${LD_BACKUP_FILENAME}`);
-    return true;
-  } catch (e) {
-    console.error('[LD] backup export failed', e);
-    ldShowBackupMsg('⚠ Save failed — see console', true);
+    const payload = await ldBuildBackupPayload();
+    const json = JSON.stringify(payload);
+    // BUG FIX: on a content:// origin (app opened directly from a file
+    // manager, e.g. Solid Explorer — content://pl.solidexplorer2.files...)
+    // or a file:// origin, the browser treats the page as running on an
+    // OPAQUE origin. showSaveFilePicker can still exist as a function
+    // there (so the old fsaSupported check below said "yes, use it"), but
+    // calling it reliably throws a SecurityError on these origins — and it
+    // can do so as an immediate synchronous throw in some Android
+    // Chromium/WebView builds, before ever reaching a place that shows the
+    // person anything. Combined with nothing ever calling .catch() on this
+    // whole async function, that produced EXACTLY the reported symptom:
+    // tapping Save does nothing visible at all — no popup, no message, no
+    // download. Skip FSA entirely on these origins and go straight to the
+    // plain Blob-download fallback below, which doesn't touch FSA/IndexedDB
+    // permissions at all and works the same regardless of origin type.
+    const isOpaqueOrigin = location.protocol === 'content:' || location.protocol === 'file:';
+    const fsaSupported = !isOpaqueOrigin && typeof window.showSaveFilePicker === 'function';
+
+    if (fsaSupported) {
+      try {
+        let handle = await ldLoadHandle();
+        if (handle) {
+          let perm = await handle.queryPermission({ mode: 'readwrite' });
+          if (perm !== 'granted' && !silent) {
+            perm = await handle.requestPermission({ mode: 'readwrite' });
+          }
+          if (perm !== 'granted') handle = null; // not usable: silent gives up, non-silent falls through to the picker below
+        }
+        if (!handle && !silent) {
+          handle = await window.showSaveFilePicker({
+            suggestedName: LD_BACKUP_FILENAME,
+            types: [{ description: 'JSON backup', accept: { 'application/json': ['.json'] } }]
+          });
+          await ldSaveHandle(handle);
+        }
+        if (handle) {
+          const writable = await handle.createWritable();
+          await writable.write(json);
+          await writable.close();
+          BB.backupLastDate(ldTodayIstStr());
+          if (!silent) ldShowBackupMsg(`✓ Saved ${payload.keyCount} keys → ${handle.name || LD_BACKUP_FILENAME}`);
+          return true;
+        }
+      } catch (e) {
+        if (e && e.name === 'AbortError') return false; // user closed the picker
+        console.warn('[LD] File System Access save failed, falling back to download', e);
+      }
+    }
+
+    if (silent) return false; // never trigger a download without a click
+
+    try {
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = LD_BACKUP_FILENAME;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      BB.backupLastDate(ldTodayIstStr());
+      ldShowBackupMsg(`✓ Saved ${payload.keyCount} keys to ${LD_BACKUP_FILENAME} (Downloads folder)`);
+      return true;
+    } catch (e) {
+      console.error('[LD] backup export failed', e);
+      ldShowBackupMsg('⚠ Save failed — see console', true);
+      return false;
+    }
+  } catch (outerErr) {
+    // BUG FIX: this outer catch is new. Previously NOTHING wrapped
+    // ldBuildBackupPayload() itself (the very first line of this
+    // function) — if it ever rejected for any reason, the async function
+    // just rejected silently with no .catch() anywhere in the onclick
+    // chain, and the button appeared to do precisely nothing.
+    console.error('[LD] Save failed unexpectedly', outerErr);
+    if (!silent) ldShowBackupMsg('⚠ Save failed unexpectedly — see console for details', true);
     return false;
   }
 }
 
 async function ldApplyBackupJson(text) {
   try {
+    // BUG FIX: this is the actual fix for "restore doesn't take from
+    // Timeline.json, ends up reflecting the checkpoint/auto-download
+    // instead". ldAutoResumeDownloadIfPartial() can already be mid-download
+    // (writing its own in-memory cache object to IndexedDB chunk by chunk)
+    // by the time the person picks a file and Restore starts. If that loop
+    // is still running while deepSaveCache() below writes the file's data,
+    // the download loop's NEXT scheduled chunk-save fires shortly after and
+    // silently overwrites what Restore just wrote — with its own, possibly
+    // older/less-complete in-memory state — since the loop has no idea a
+    // restore happened underneath it. Signal it to stop first, the same
+    // way the existing "Restart Fresh" flow already does, and give it a
+    // moment to actually observe the flag before writing anything.
+    if (window._deepDownloadInProgress) {
+      console.log('[LD] Restore: an auto-download was in progress — stopping it first so it can\'t overwrite the restored data');
+      window._deepDownloadCancelled = true;
+      await new Promise(r => setTimeout(r, 600));
+      window._deepDownloadInProgress = false;
+      window._deepDownloadCancelled = false; // reset so nothing later mistakes this for a user-initiated cancel
+    }
     const parsed = JSON.parse(text);
     const data = (parsed && typeof parsed === 'object' && parsed.data) ? parsed.data : parsed;
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
@@ -2641,15 +2715,41 @@ async function ldApplyBackupJson(text) {
     // so the app would come back up finding no data and silently start a
     // full fresh download, even though a restore had just "succeeded".
     let deepRestored = false;
-    if (parsed && parsed.deepCache && parsed.deepCache.dailyMap
-        && Object.keys(parsed.deepCache.dailyMap).length > 0
-        && typeof window.deepSaveCache === 'function') {
+    const deepCachePresent = !!(parsed && parsed.deepCache);
+    const deepCacheHasDailyMap = !!(deepCachePresent && parsed.deepCache.dailyMap);
+    const deepCacheIndexCount = deepCacheHasDailyMap ? Object.keys(parsed.deepCache.dailyMap).length : 0;
+    if (deepCacheHasDailyMap && deepCacheIndexCount > 0 && typeof window.deepSaveCache === 'function') {
       try {
+        // DIAGNOSTIC: compare what's about to be overwritten vs what the
+        // file contains, so it's possible to SEE whether this file's data
+        // is actually older/smaller than what's already in IndexedDB
+        // (e.g. from an auto-download that ran before Restore was ever
+        // clicked) rather than just assuming Restore "didn't work".
+        let beforeInfo = 'unknown';
+        try {
+          const before = await new Promise(res => _deepLoadAsync(res));
+          const beforeIndexCount = (before && before.dailyMap) ? Object.keys(before.dailyMap).length : 0;
+          const beforeSampleKey = (before && before.dailyMap) ? Object.keys(before.dailyMap)[0] : null;
+          const beforeSampleDays = beforeSampleKey ? before.dailyMap[beforeSampleKey].length : 0;
+          const fileSampleKey = Object.keys(parsed.deepCache.dailyMap)[0];
+          const fileSampleDays = fileSampleKey ? parsed.deepCache.dailyMap[fileSampleKey].length : 0;
+          beforeInfo = `before: ${beforeIndexCount} indices (${beforeSampleKey || '—'}: ${beforeSampleDays}d, lastDate ${before && before.lastDate}) → file: ${deepCacheIndexCount} indices (${fileSampleKey || '—'}: ${fileSampleDays}d, lastDate ${parsed.deepCache.lastDate})`;
+        } catch (e) { /* diagnostic only, never blocks the actual restore */ }
+        console.log('[LD] Deep cache restore comparison —', beforeInfo);
         await window.deepSaveCache(parsed.deepCache);
         deepRestored = true;
       } catch (e) {
         console.warn('[LD] deep cache restore failed', e);
       }
+    } else {
+      // BUG FIX: previously this branch was silent — if the backup file's
+      // deepCache was missing/empty (e.g. it was saved from a session where
+      // Save never actually persisted the deep cache, such as the content://
+      // origin issue below), the person got no explanation at all: restore
+      // would "succeed" for the small localStorage-only settings, then the
+      // app would quietly fall back to a full fresh download on reload with
+      // no indication of why — looking exactly like "restore doesn't work".
+      console.warn('[LD] Backup file has no usable deepCache — dailyMap present:', deepCacheHasDailyMap, 'index count:', deepCacheIndexCount, '. A fresh download will be needed after reload.');
     }
     // NPS scheme NAV history — same rationale as deepCache above: it lives
     // in its own IndexedDB container, so it needs its own explicit restore
@@ -2684,19 +2784,69 @@ async function ldApplyBackupJson(text) {
         console.warn('[LD] BAF cache restore failed', e);
       }
     }
+    // BUG FIX: this is the real, root-cause fix. This app is frequently
+    // opened via a content:// URL (e.g. content://pl.solidexplorer2.files/...
+    // or content://downloads/all_downloads/... — confirmed from two
+    // different screenshots in this same troubleshooting session, meaning
+    // the URI itself changes between opens). content:// (like file://) is
+    // treated as an OPAQUE origin by Chromium — and opaque origins are
+    // never guaranteed to be treated as "the same origin" across separate
+    // navigations, INCLUDING a location.reload() of the same document.
+    // That means sessionStorage (and potentially IndexedDB continuity)
+    // cannot be relied on to survive the reload this function used to do
+    // after every restore — which is exactly why the previous "skip
+    // auto-resume once" flag (sessionStorage-based) silently failed to
+    // carry across the reload: the reload could land on a fresh opaque
+    // origin that never sees the flag the old origin set.
+    //
+    // The fix: stop reloading the page at all for a restore that has
+    // already succeeded. Instead, update the live in-memory state directly
+    // (window._deepWeeklyCache) and re-render whatever tab is currently
+    // open from it — the exact same pattern already used for Portfolio
+    // Snapshot's own post-load refresh. This sidesteps the opaque-origin
+    // problem entirely, since nothing has to survive a fresh navigation:
+    // the already-running page just continues with updated data.
+    if (deepRestored) {
+      try {
+        window._deepWeeklyCache = await new Promise(res => _deepLoadAsync(res));
+      } catch (e) {
+        console.warn('[LD] Could not refresh in-memory cache after restore', e);
+      }
+    }
     if (restoreResult.failed.length > 0) {
       // At least one key didn't fit (most likely storage quota) — say so
       // explicitly instead of quietly reporting a lower count with no
       // explanation, so the user knows something is actually missing.
       console.warn('[LD] Backup restore: these keys failed to save:', restoreResult.failed);
-      ldShowBackupMsg(`⚠ Database restored, but ${restoreResult.failed.length} item(s) didn't fit (storage full?) — see console for which ones. Reloading…`, true);
+      ldShowBackupMsg(`⚠ Database restored, but ${restoreResult.failed.length} item(s) didn't fit (storage full?)`, true);
+    } else if (!deepRestored) {
+      // BUG FIX: on-screen visibility for the "settings restored fine, but
+      // this file had no usable price history" case — previously the only
+      // trace was a console.warn nobody would see, and the person would
+      // just watch a fresh 2500-day download start with no explanation of
+      // why the restore they just did "didn't work".
+      ldShowBackupMsg(`⚠ Settings restored, but this file had no price history (dailyMap) — a fresh download may start.`, true);
     } else {
-      ldShowBackupMsg(`✓ Database restored — reloading…`);
+      ldShowBackupMsg(`✓ Database restored (${deepCacheIndexCount} indices) — refreshing view…`);
     }
-    // Short delay here is now just so the message above is visible for a
-    // moment — the actual save is already guaranteed complete by the
-    // await above, not by this timeout.
-    setTimeout(() => window.location.reload(), 400);
+    // BUG FIX: no more location.reload() here. The deep cache is already
+    // fully written and now mirrored into window._deepWeeklyCache above,
+    // so re-render whatever tab the person is currently looking at
+    // directly from that fresh in-memory state — no reload, no origin
+    // reassignment, nothing that depends on state surviving a navigation.
+    try {
+      var _activePanel = document.querySelector('.tab-panel.active');
+      var _activeTabId = _activePanel ? _activePanel.id : '';
+      if (_activeTabId === 'tab-pt' && typeof window.onPTTabActivated === 'function') {
+        window.onPTTabActivated();
+      } else if (_activeTabId === 'tab-hilega' && typeof openHilegaTab === 'function') {
+        openHilegaTab();
+      } else if (_activeTabId === 'tab-npsswitch' && typeof window.onNpsSwitchTabActivated === 'function') {
+        window.onNpsSwitchTabActivated();
+      } else if (_activeTabId === 'tab-tactical' && typeof window.onTacticalTabActivated === 'function') {
+        window.onTacticalTabActivated();
+      }
+    } catch (e) { console.warn('[LD] Post-restore tab refresh failed', e); }
   } catch (err) {
     console.error('[LD] backup restore failed', err);
     ldShowBackupMsg('⚠ Invalid backup file', true);
@@ -2704,17 +2854,63 @@ async function ldApplyBackupJson(text) {
 }
 
 async function ldImportAllData() {
-  // BUG FIX: this used to try a previously-linked file handle FIRST, with
-  // no picker and no visible indication it was happening — the only clue
-  // was the filename inside the confirm() dialog, easy to click through
-  // without reading. If that linked handle pointed to a stale/older file
-  // (e.g. from days/weeks ago), Restore would silently re-apply THAT file
-  // instead of ever letting the person choose — matching exactly the
-  // reported symptom ("clicked restore, picked the last json file, no
-  // change in app": the picker never opened, so nothing you clicked in a
-  // file dialog actually mattered). Restore now ALWAYS opens the real file
-  // picker, so the person can be certain which file is being restored.
+  // Step 1: try the previously-linked file handle (the same one Save uses
+  // for silent auto-backups) — if it's there and still readable, use it
+  // with NO picker. This is the closest a browser will allow to "find the
+  // latest Timeline.json automatically": it can't search the filesystem,
+  // but it CAN silently re-open a file the person already picked once and
+  // explicitly granted access to (via 💾 Save Data or a prior Restore).
+  //
+  // Earlier versions of this function used to do exactly this by default,
+  // which caused a real bug: if that linked handle pointed to a STALE file
+  // (e.g. from days ago) the person had no way to know or override it — no
+  // picker ever opened, so nothing they tried to click mattered. The fix
+  // here is NOT to drop the auto-check, but to make it self-verifying and
+  // transparent: show the file's own last-modified time in the confirm
+  // dialog so the person can see whether it's actually the latest one
+  // before confirming, and always offer an explicit "pick a different
+  // file" escape hatch right there in the same prompt.
   if (typeof window.showOpenFilePicker === 'function') {
+    let linkedHandle = null;
+    try { linkedHandle = await ldLoadHandle(); } catch (e) { /* nothing linked yet */ }
+
+    if (linkedHandle) {
+      try {
+        // Re-verify permission rather than assuming a stale grant is still
+        // valid — browsers can revoke/expire it, and re-requesting is the
+        // only way to know for sure before trying to read.
+        let perm = await linkedHandle.queryPermission({ mode: 'read' });
+        if (perm !== 'granted') perm = await linkedHandle.requestPermission({ mode: 'read' });
+        if (perm === 'granted') {
+          const file = await linkedHandle.getFile();
+          const modified = new Date(file.lastModified);
+          const modifiedStr = modified.toLocaleString();
+          const ageMs = Date.now() - file.lastModified;
+          const ageWarning = ageMs > 24 * 60 * 60 * 1000
+            ? `\n⚠ This file is over a day old — it may not be your latest backup.`
+            : '';
+          const useIt = window.confirm(
+            `Restore from linked file "${file.name}"?\nLast modified: ${modifiedStr}${ageWarning}\n\n` +
+            `Click Cancel to pick a different file instead.\n\nThis will overwrite current saved data (scanner cache, watchlist, paper trade, settings).`
+          );
+          if (useIt) {
+            const text = await file.text();
+            await ldApplyBackupJson(text);
+            return;
+          }
+          // Fell through deliberately (person chose "pick a different
+          // file") — continue below to the manual picker, not an error.
+        }
+      } catch (e) {
+        // Linked handle exists but couldn't be read (file moved/deleted,
+        // permission denied, etc.) — fall through to the manual picker.
+        console.warn('[LD] Linked file could not be auto-read, falling back to picker', e);
+      }
+    }
+
+    // Step 2: no usable linked file (none linked yet, permission denied,
+    // file missing, or the person chose "pick a different file" above) —
+    // ask the user to upload via the real native picker.
     try {
       const [handle] = await window.showOpenFilePicker({
         types: [{ description: 'JSON backup', accept: { 'application/json': ['.json'] } }],
@@ -2722,10 +2918,10 @@ async function ldImportAllData() {
       });
       const file = await handle.getFile();
       const text = await file.text();
-      if (!window.confirm(`Restore from "${file.name}"? This will overwrite current saved data (scanner cache, watchlist, paper trade, settings) and reload the app.`)) return;
+      if (!window.confirm(`Restore from "${file.name}"? This will overwrite current saved data (scanner cache, watchlist, paper trade, settings).`)) return;
       try {
         const perm = await handle.requestPermission({ mode: 'readwrite' });
-        if (perm === 'granted') await ldSaveHandle(handle); // link it for future silent Saves only — never re-read silently by Restore
+        if (perm === 'granted') await ldSaveHandle(handle); // link it so next Restore can auto-check it too
       } catch (e) { /* read-only is fine, restore still works */ }
       await ldApplyBackupJson(text);
       return;
@@ -2764,7 +2960,7 @@ function ldOnRestoreFileChosen(e) {
   const input = e.target;
   const file = input.files && input.files[0];
   if (!file) return;
-  if (!window.confirm(`Restore from "${file.name}"? This will overwrite current saved data (scanner cache, watchlist, paper trade, settings) and reload the app.`)) {
+  if (!window.confirm(`Restore from "${file.name}"? This will overwrite current saved data (scanner cache, watchlist, paper trade, settings).`)) {
     input.value = '';
     return;
   }
@@ -2807,6 +3003,19 @@ window.addEventListener('load', function() { ldAutoBackupIfNewDay(); });
 // to begin) or already complete.
 async function ldAutoResumeDownloadIfPartial() {
   try {
+    // Note: an earlier version of this fix relied on a sessionStorage flag
+    // set by Restore to skip this check exactly once after a restore. That
+    // approach was abandoned — content:// origins (this app is frequently
+    // opened via one, e.g. content://pl.solidexplorer2.files/... or
+    // content://downloads/all_downloads/...) are OPAQUE origins, which
+    // Chromium does not guarantee to treat as "the same origin" across a
+    // fresh navigation — including a location.reload() of the same
+    // document. sessionStorage set before such a reload could simply not
+    // be visible after it. The real fix is in ldApplyBackupJson: Restore
+    // no longer reloads the page at all, so this function's normal
+    // "reload happened, check if download should resume" trigger doesn't
+    // even fire right after a restore anymore — nothing here needs to
+    // special-case that case any longer.
     if (typeof _deepLoadAsync !== 'function' || typeof downloadData !== 'function') return;
     var cache = await new Promise(function(res) { _deepLoadAsync(res); });
     if (!cache || !cache.dailyMap) return;
@@ -3012,7 +3221,6 @@ function ptNrm(s){return(s||'').replace(/[^a-z0-9]/gi,'').toLowerCase()}
 function ptPad(v){return String(v).padStart(2,'0')}
 function ptFmtDDMMYYYY(d){return ptPad(d.getDate())+ptPad(d.getMonth()+1)+d.getFullYear()}
 function ptGenDays(n){var a=[],d=new Date();while(a.length<n){if(d.getDay()!==0&&d.getDay()!==6)a.push(new Date(d));d.setDate(d.getDate()-1)}return a}
-function ptFmt(n){return'Rs '+Math.round(n).toLocaleString('en-IN')}
 // ── Single-line Progress Status (replaces prior line each update) ──
 var _ptLogLines=[];
 function ptLog(msg){
@@ -6887,6 +7095,24 @@ function _showAutoAlert(msg, type) {
   // Auto-refresh works from any protocol (file:// or http) via CORS proxies
   _deepLoadAsync(function(cache){
     win._deepWeeklyCache = cache;
+    // BUG FIX: Portfolio Snapshot ('pt') is the tab marked active in the
+    // static HTML, so it's already showing on page load without ever
+    // going through switchTab('pt') — which is the ONLY place that calls
+    // onPTTabActivated(), the function that actually reads
+    // window._deepWeeklyCache and renders real data into the tab instead
+    // of its static "No data yet — open this tab to load" placeholder.
+    // Net effect: after a restore (or a plain page load), the deep cache
+    // above loads correctly into memory, but the very first tab the user
+    // sees keeps showing stale/placeholder content until they manually
+    // switch away and back. Since this callback is exactly the point
+    // where the cache becomes ready, re-run the pt tab's init here if
+    // it's the (still) active tab.
+    try {
+      var ptPanel = document.getElementById('tab-pt');
+      if (ptPanel && ptPanel.classList.contains('active') && typeof win.onPTTabActivated === 'function') {
+        win.onPTTabActivated();
+      }
+    } catch(e) { console.warn('[DEEP] post-load Portfolio Snapshot refresh failed', e); }
     var hasDeepData = cache && cache.dailyMap && Object.keys(cache.dailyMap).length > 0;
     var hasScannerData = false;
     try {
@@ -8286,6 +8512,18 @@ async function drawHilegaMilega() {
 }
 // ── 13.7 Tab Activation & Resize ──
 function openHilegaTab() {
+  // BUG FIX / feature request: default the Chart tab to Nifty 200 (Broad
+  // Market) the very first time it's opened, using the SAME one-shot
+  // request mechanism Portfolio Snapshot's "View HM Chart" button uses
+  // (window._hmPendingChartRequest, consumed inside hmPopulateIndexDropdown)
+  // — so this is honored as a real selection, not a sticky override. It
+  // only fires when hm_index_key has genuinely never been set (a true
+  // first-time session); once the person picks anything at all, that
+  // choice is saved and always wins from then on, exactly like every
+  // other explicit selection already does.
+  if (!window._hmPendingChartRequest && BB.hmIndexKey() === '') {
+    window._hmPendingChartRequest = 'nifty200';
+  }
   // CONFIRMED BUG FIX: NSE data (dailyMap/weeklyMap/monthlyMap, including
   // the 'nifty 50' / 'nifty 500' benchmarks the RS-vs-Nifty panel needs)
   // must be loaded into window._deepWeeklyCache BEFORE the NPS/BAF merges
