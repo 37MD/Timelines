@@ -3585,6 +3585,7 @@ async function ptRunScan(){
   if(_ptScanRunning){ptLog('⏳ Scan already in progress — skipping');return;}
   _ptScanRunning=true;
   ptLogClear();
+  var _ptScanStartTs=Date.now(); // used below to measure real elapsed time for the "Cache is fresh" banner's next-scan ETA
   ptEl('pt-st').innerHTML='<span style="display:inline-block;width:10px;height:10px;border:2px solid #b8860b;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite;margin-right:4px;vertical-align:middle"></span> Loading data...';
   ptScanR=[];
   ptLog('⚡ Scan started — fetching data...');
@@ -3824,6 +3825,22 @@ async function ptRunScan(){
   ptEl('pt-st').textContent=(usedDeepCache?'[Data Engine]':'[NSE]')+' '+count+' indices scanned';
   ptEl('pt-ts').textContent=new Date().toLocaleString();
   ptLog('✅ Scan complete — '+count+' indices (NSE + NPS + BAF)');
+  // Persist how long THIS scan actually took (in seconds), so the next
+  // "Cache is fresh" banner can tell the person a realistic wait time
+  // instead of a made-up number. A rolling average of the last 5 runs
+  // smooths out one-off slow runs (e.g. a flaky proxy) without being
+  // stuck on a single unrepresentative sample forever.
+  try{
+    var _secs=Math.round((Date.now()-_ptScanStartTs)/1000);
+    if(_secs>0&&_secs<3600){ // sanity guard — ignore absurd values (backgrounded tab, clock skew, etc.)
+      var _hist=[];
+      try{_hist=JSON.parse(localStorage.getItem('ld_scan_duration_hist_v1')||'[]');}catch(e){}
+      if(!Array.isArray(_hist))_hist=[];
+      _hist.push(_secs);
+      if(_hist.length>5)_hist.shift();
+      localStorage.setItem('ld_scan_duration_hist_v1', JSON.stringify(_hist));
+    }
+  }catch(e){/* non-critical — banner just falls back to a default estimate */}
   if(typeof PSnap!=='undefined')PSnap.onScanComplete();
   }catch(e){ptLog('❌ Scan error: '+(e.message||e));console.warn('[PT] scan error:',e);}
   finally{_ptScanRunning=false;}
@@ -4834,14 +4851,29 @@ function onTabActivated(){
   // standalone banner, so all status messages live in a single place.
   var dc=window._deepWeeklyCache;
   var _ssp=(typeof window._statusStripPush==='function')?window._statusStripPush:function(){};
+  // Builds "click ⚡ Analyze — takes about X" using the average of up to
+  // the last 5 real scan durations (recorded in ptRunScan on completion).
+  // Falls back to a generic "1-2 minutes" estimate before any scan has
+  // ever completed on this device, rather than showing nothing or a
+  // fabricated precise number.
+  function _scanEtaPhrase(){
+    var hist=[];
+    try{hist=JSON.parse(localStorage.getItem('ld_scan_duration_hist_v1')||'[]');}catch(e){}
+    if(!Array.isArray(hist)||hist.length===0)return 'takes about 1-2 min';
+    var avgSecs=Math.round(hist.reduce(function(a,b){return a+b;},0)/hist.length);
+    if(avgSecs<60)return 'takes about '+avgSecs+'s';
+    var minsRounded=Math.max(0.25, Math.round(avgSecs/15)*15/60); // round to nearest 15s, expressed in minutes
+    var minsDisplay=(minsRounded % 1 === 0)?minsRounded.toFixed(0):minsRounded.toFixed(1);
+    return 'takes about '+minsDisplay+' min';
+  }
   if(dc&&dc.lastDate&&dc.dailyMap&&Object.keys(dc.dailyMap).length>10){
     var ld=dc.lastDate;
     var eDate=new Date(parseInt(ld.substring(4,8),10),parseInt(ld.substring(2,4),10)-1,parseInt(ld.substring(0,2),10));
     var diffDays=Math.floor((Date.now()-eDate.getTime())/86400000);
     if(diffDays<=1){
-      _ssp('\u2705 Cache is fresh (updated '+diffDays+' day(s) ago)', 'good');
+      _ssp('\u2705 Cache is fresh (updated '+diffDays+' day(s) ago) \u2014 tap \u26A1 Analyze to refresh the tables, '+_scanEtaPhrase(), 'good');
     }else{
-      _ssp('\u26A0 Data is '+diffDays+' day(s) old \u2014 click \u26A1 ANALYZE to refresh', 'warn');
+      _ssp('\u26A0 Data is '+diffDays+' day(s) old \u2014 click \u26A1 ANALYZE to refresh, '+_scanEtaPhrase(), 'warn');
     }
   }else{
     _ssp('\u26A0 No cached data \u2014 click \u26A1 DOWNLOAD to fetch 2500 days (~10 yrs) for 158 indices', 'error');
@@ -10978,7 +11010,7 @@ async function downloadNPSBAF2500(logFn) {
   var _lastExportDate = null;
   try { _lastExportDate = localStorage.getItem(LD_DL2500_LAST_EXPORT_DATE_KEY); } catch(e) {}
   if (_lastExportDate && _lastExportDate === ldTodayIstStr()) {
-    _log('NPSData2500.json / BAFData2500.json already exported today (' + _lastExportDate + ') — skipping re-download. Use 🗑️ Restart or wait for tomorrow to force a fresh export.');
+    _log('NPS + BAF 2500-day export already ran today (' + _lastExportDate + ') — skipping re-download. Use 🗑️ Restart or wait for tomorrow to force a fresh export.');
     _dl2500LastRun = Date.now(); // also satisfies the session guard above for the rest of today
     return;
   }
@@ -11078,8 +11110,19 @@ async function downloadNPSBAF2500(logFn) {
     description: 'NPS scheme NAV history — latest 2500 daily entries per scheme. Partial counts are API limitations (ABSL started May 2017, AXIS Aug 2022, TATA appears dead).',
     schemes: npsResult
   };
-  _dlJson(npsExport, 'NPSData2500.json');
-  _log('NPSData2500.json downloaded — ' + Object.keys(npsResult).length + ' schemes');
+  // BUG FIX: Android's Download Manager (which content:// / file-manager-
+  // launched Brave defers to) remembers every filename it has ever saved,
+  // not just ones from today. So even with the once-per-day guard above
+  // working correctly, the FIRST legitimate export on a NEW day still
+  // collides with yesterday's file of the identical name and triggers
+  // Brave's native "Download file again?" prompt — which blocks the UI
+  // until Cancel/Download again is tapped. Date-stamping the filename
+  // (NPSData2500_2026-07-21.json) gives every day's export a name Android
+  // has never seen before, so the prompt has nothing to fire on. Old
+  // dated files simply accumulate in Downloads; delete older ones
+  // manually if that folder gets cluttered.
+  _dlJson(npsExport, 'NPSData2500_' + ldTodayIstStr() + '.json');
+  _log('NPSData2500_' + ldTodayIstStr() + '.json downloaded — ' + Object.keys(npsResult).length + ' schemes');
 
   // ═══════════════════════════════════════════════════════════════════
   // PART B: BAF — 4 Balanced Advantage Funds from mfapi.in
@@ -11153,8 +11196,9 @@ async function downloadNPSBAF2500(logFn) {
     description: 'Balanced Advantage Fund NAV history — latest 2500 daily entries per fund. KOTAK partial (1949) because fund launched Aug 2018.',
     funds: bafResult
   };
-  _dlJson(bafExport, 'BAFData2500.json');
-  _log('BAFData2500.json downloaded — ' + Object.keys(bafResult).length + ' funds');
+  // Same date-stamping fix as NPSData2500 above — see that comment.
+  _dlJson(bafExport, 'BAFData2500_' + ldTodayIstStr() + '.json');
+  _log('BAFData2500_' + ldTodayIstStr() + '.json downloaded — ' + Object.keys(bafResult).length + ' funds');
 
   // Record today as the last successful export date so the persisted
   // once-per-day guard above can skip re-downloading these same two files
