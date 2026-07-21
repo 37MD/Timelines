@@ -1362,12 +1362,25 @@ var DD = (function() {
 
   // ── Generic fetch via CORS proxy rotation ──
   // Tries each proxy in order, returns first successful Response.
-  // Throws if all proxies fail.
+  // Rejects if all proxies fail.
   function fetchURL(url, opts) {
     var lastErr = new Error('All proxies failed for: ' + url);
     var proxyList = DD._proxies || CORS_PROXIES;
     return (function tryProxy(i) {
-      if (i >= proxyList.length) throw lastErr;
+      // BUG FIX: this used to `throw lastErr` here instead of returning a
+      // rejected Promise. tryProxy(0) is invoked SYNCHRONOUSLY (see the
+      // `(function tryProxy(i){...})(0)` call below) — so on the very
+      // first call, an empty/exhausted proxyList made this throw escape
+      // synchronously out of fetchURL() itself, before any Promise chain
+      // existed for a caller's .catch() to attach to. Any call site that
+      // relied on .then()/.catch() chaining (rather than wrapping the
+      // call itself in try/catch) saw this as an uncaught error instead
+      // of a normal rejection — confirmed live as "Uncaught Error: All
+      // proxies failed (XHR): https://www.nseindia.com/api/". Returning a
+      // rejected Promise instead makes this identical whether it's the
+      // first call or a later recursive one, so every caller's normal
+      // .catch()/await-try-catch handling works uniformly.
+      if (i >= proxyList.length) return Promise.reject(lastErr);
       return fetch(_buildProxyUrl(proxyList[i], url), opts || {}).then(function(r) {
         if (r.ok) return r;
         lastErr = new Error('HTTP ' + r.status + ' from proxy ' + i);
@@ -1385,7 +1398,10 @@ var DD = (function() {
     var ms = timeout || 15000;
     var proxyList = DD._proxies || CORS_PROXIES;
     return (function tryProxy(i) {
-      if (i >= proxyList.length) throw new Error('All proxies failed (XHR): ' + url);
+      // Same fix as fetchURL() above — reject instead of throw, since
+      // tryProxy(0) runs synchronously and a bare throw here escaped
+      // straight past any caller's .then()/.catch() chain.
+      if (i >= proxyList.length) return Promise.reject(new Error('All proxies failed (XHR): ' + url));
       return new Promise(function(resolve, reject) {
         var xhr = new XMLHttpRequest(), done = false;
         var timer = setTimeout(function() {
@@ -2837,6 +2853,21 @@ async function ldApplyBackupJson(text) {
     try {
       var _activePanel = document.querySelector('.tab-panel.active');
       var _activeTabId = _activePanel ? _activePanel.id : '';
+      // BUG FIX: PSnap's in-memory PState (names/purchases/hidden) is only
+      // ever refreshed from localStorage by psLoad(), which previously ran
+      // exclusively inside onTabActivated() — i.e. only when the Portfolio
+      // Snapshot tab happens to be the ACTIVE tab at the moment Restore
+      // runs. If Restore was triggered from any other tab, PState.hidden
+      // (the Master List "hide" set restored above by BB.restoreAll) sat
+      // correctly in localStorage but the in-memory PState kept whatever
+      // was there before the restore, so a hidden index could still show
+      // up in the Portfolio Snapshot tables until the person happened to
+      // switch tabs away and back. Reload it unconditionally here so the
+      // restored hidden list takes effect immediately regardless of which
+      // tab is open, matching every other restored container's behavior.
+      if (typeof window.PSnap !== 'undefined' && typeof window.PSnap.reloadState === 'function') {
+        window.PSnap.reloadState();
+      }
       if (_activeTabId === 'tab-pt' && typeof window.onPTTabActivated === 'function') {
         window.onPTTabActivated();
       } else if (_activeTabId === 'tab-hilega' && typeof openHilegaTab === 'function') {
@@ -4051,6 +4082,16 @@ function hideName(name){
   if(typeof win.ptApplyHiddenFilter==='function')win.ptApplyHiddenFilter();
   else if(typeof win.ptRunScan==='function')win.ptRunScan();
   renderUniverseList(psIndexUniverse());
+  // Refresh every downstream table that is filtered by PState.hidden /
+  // ptIsHidden — otherwise a freshly hidden index keeps showing in Monthly
+  // Green>SMA8, Watch for Bearish Mode, Portfolio Summary, and Matching
+  // Index until some unrelated action (e.g. a full re-scan) happens to
+  // re-render them. Cheap to call unconditionally: each render*() function
+  // already no-ops safely if its DOM target isn't present or visible.
+  if(typeof renderMonthlyGreenAboveSMA8==='function')renderMonthlyGreenAboveSMA8();
+  if(typeof renderMonthlyRedAtOrAboveSMA8==='function')renderMonthlyRedAtOrAboveSMA8();
+  if(typeof renderSummary==='function')renderSummary();
+  if(typeof renderMatchingIndex==='function')renderMatchingIndex();
 }
 function unhideName(name){
   var i=PState.hidden.indexOf(name);
@@ -4059,6 +4100,12 @@ function unhideName(name){
   if(typeof win.ptApplyHiddenFilter==='function')win.ptApplyHiddenFilter();
   else if(typeof win.ptRunScan==='function')win.ptRunScan();
   renderUniverseList(psIndexUniverse());
+  // Same refresh as hideName() above, so an unhidden index reappears in
+  // these tables immediately rather than after the next full re-scan.
+  if(typeof renderMonthlyGreenAboveSMA8==='function')renderMonthlyGreenAboveSMA8();
+  if(typeof renderMonthlyRedAtOrAboveSMA8==='function')renderMonthlyRedAtOrAboveSMA8();
+  if(typeof renderSummary==='function')renderSummary();
+  if(typeof renderMatchingIndex==='function')renderMatchingIndex();
 }
 function isHidden(name){return PState.hidden.indexOf(name)>=0;}
 // Exported accessor — needed by the Monthly Green>SMA8 / Watch for
@@ -4253,6 +4300,32 @@ var COL_DEFS={
 var ALL_COL_KEYS=['confluence','regime','pwma','ba','rs1m','rs2m','rs3m','rs','signal','hmstatus','returns','hmchart'];
 
 // ── Navigate to Hilega Milega chart (Monthly, 3Y) for a given index ──
+// Which of the three mutually-exclusive Portfolio Snapshot views is
+// currently visible: 'universe' (Master List panel), 'summary' (Portfolio
+// Summary + Matching Index), or 'main' (the default basic index table).
+// Used by viewHMChart()/showBackButton() so "← Back" from the Charts tab
+// restores whichever table the person actually came from, instead of
+// always landing on the default main table.
+function ptCurrentView(){
+  var univ=psEl('pt-universe-panel');
+  if(univ&&univ.style.display!=='none')return 'universe';
+  var sumWrap=psEl('pt-summary-wrap');
+  if(sumWrap&&sumWrap.style.display!=='none')return 'summary';
+  return 'main';
+}
+// Restores a view previously captured by ptCurrentView(). Mirrors exactly
+// what openUniverse()/showSummary()/hideSummary() each do to switch views,
+// without re-triggering their side effects that don't belong here (e.g.
+// openUniverse() also calls hideSummary(), which is fine and reused below).
+function ptRestoreView(view){
+  if(view==='universe'){
+    openUniverse();
+  }else if(view==='summary'){
+    showSummary();
+  }else{
+    hideSummary();
+  }
+}
 function viewHMChart(name){
   var list=psIndexUniverse();
   var key=null;
@@ -4280,6 +4353,9 @@ function viewHMChart(name){
   win._hmTfDays=1095;
   win._hmReturnToPT=true;
   win._hmPendingChartRequest=key; // one-shot: consumed by hmPopulateIndexDropdown's next render
+  // Remember which table the person is looking at right now, so Back can
+  // return them to it specifically instead of the default main table.
+  win._hmReturnToPTView=ptCurrentView();
   showBackButton();
   if(typeof win.switchTab==='function')win.switchTab('hilega');
 }
@@ -4294,6 +4370,19 @@ function showBackButton(){
       win._hmReturnToPT=false;
       b.style.display='none';
       if(typeof win.switchTab==='function')win.switchTab('pt');
+      // Restore whichever table (main / Master List / Portfolio Summary)
+      // was showing before "View HM Chart" navigated away, so Back lands
+      // exactly where the person left off instead of always resetting to
+      // the default main table. Applied AFTER switchTab('pt') — which
+      // fires onPTTabActivated()/onTabActivated() and, as part of its
+      // normal per-activation refresh, unconditionally shows/hides the
+      // Summary view based on portfolio contents — so this runs last and
+      // isn't immediately overwritten by that refresh.
+      var _view=win._hmReturnToPTView;
+      win._hmReturnToPTView=null; // one-shot, same pattern as _hmPendingChartRequest
+      if(_view&&typeof win.PSnap!=='undefined'&&typeof win.PSnap.restoreView==='function'){
+        win.PSnap.restoreView(_view);
+      }
     };
     document.body.appendChild(b);
   }
@@ -4416,6 +4505,16 @@ async function restartFreshDownload(){
       return;
     }
     try{ localStorage.removeItem('ld_deep_weekly_history_v4'); }catch(e){}
+    // Also clear the NPS/BAF 2500 once-per-day export guard — a deliberate
+    // Restart Fresh should re-export NPSData2500.json/BAFData2500.json
+    // even if they already ran once today, since the underlying data this
+    // button is about to re-fetch may genuinely differ from what was
+    // exported earlier today. Uses the literal key string (not the
+    // LD_DL2500_LAST_EXPORT_DATE_KEY constant) since that constant is
+    // declared in a later, separate <script> block — referencing it here
+    // would depend on script execution order rather than being guaranteed
+    // safe by simple top-to-bottom hoisting within one block.
+    try{ localStorage.removeItem('ld_dl2500_last_export_date'); }catch(e){}
     window._deepWeeklyCache = null;
     window._deepDownloadInProgress = false;
     console.log('[DEEP] Restart Fresh: cleared all deep cache keys — next download starts at day 1');
@@ -4857,6 +4956,23 @@ function resetPortfolio(){
   if(trEl){trEl.textContent='—';trEl.style.color='';}
 }
 
+// Reloads PState (names/purchases/hidden) fresh from localStorage and
+// re-renders every table that depends on it. Distinct from onTabActivated()
+// (which also does this, but only runs when the PT tab is being switched
+// to) — this is for callers like Restore that need PState brought current
+// regardless of which tab is currently active, since a stale in-memory
+// PState.hidden would otherwise let a just-restored hide/unhide decision
+// silently not take effect until the person happened to visit the PT tab.
+function reloadState(){
+  psLoad();
+  if(typeof win.ptApplyHiddenFilter==='function')win.ptApplyHiddenFilter();
+  renderSummary();
+  renderMatchingIndex();
+  renderMonthlyGreenAboveSMA8();
+  renderMonthlyRedAtOrAboveSMA8();
+  updateHeaderStats();
+}
+
 win.PSnap={
   openUniverse:openUniverse,
   closeUniverse:closeUniverse,
@@ -4882,6 +4998,8 @@ win.PSnap={
   downloadData:downloadData,
   downloadDataFast:downloadDataFast,
   restartFreshDownload:restartFreshDownload,
+  reloadState:reloadState,
+  restoreView:ptRestoreView,
   get updateMode(){return updateMode;}
 };
 // scannerRowFor is declared inside this IIFE (private to Portfolio
@@ -5914,7 +6032,13 @@ function _fetchDeepWeeklyHistoryImpl(onProgress){
             Object.keys(cache.dailyMap).forEach(function(k){ totalRows += cache.dailyMap[k].length; });
             var chunkNumDone = Math.ceil(idx / DEEP_BATCH_SIZE) + _alreadySavedChunks;
             console.log('[DEEP] Chunk ' + chunkNumDone + '/' + totalChunks + ' done — ok:' + _okCount + ' fail:' + _failCount + ' — ' + idxCount + ' indices, ' + totalRows + ' rows');
-            cache.lastDate = deepFmtDate(slice[slice.length - 1] || new Date());
+            // BUGFIX: gapDays (and therefore slice) is newest-day-first, so
+            // slice[slice.length-1] is the OLDEST day in this chunk, not the
+            // newest. That made cache.lastDate crawl backward each chunk,
+            // same root cause as the Fast-path bug fixed above — see that
+            // comment for the full explanation of how this breaks the
+            // freshness/resume check when a download is interrupted.
+            cache.lastDate = deepFmtDate(gapDays[0] || new Date());
             // ── AWAITED save after EVERY chunk — verifies IDB write succeeded ──
             _deepShowProgress(idx, total, '\uD83D\uDCC2 Saving chunk ' + chunkNumDone + '/' + totalChunks + '...');
             var _chunkPayload = { lastDate: cache.lastDate, dailyMap: cache.dailyMap };
@@ -6270,7 +6394,19 @@ async function _fetchDeepWeeklyHistoryFastImpl(onProgress) {
           // ── Save to IDB every DEEP_BATCH_SIZE days (same as sequential) ──
           if ((idx - _lastSaveIdx) >= DEEP_BATCH_SIZE || idx >= total) {
             _lastSaveIdx = idx;
-            cache.lastDate = deepFmtDate(gapDays[Math.min(idx, total) - 1] || new Date());
+            // BUGFIX: gapDays is newest-day-first, so gapDays[idx-1] is the
+            // OLDEST day processed so far in this chunk — using it here made
+            // cache.lastDate crawl backward into the past with every
+            // intermediate save. That broke the "is my cache fresh"
+            // freshness check (Date.now() - lastDate <= 1 day) the moment a
+            // Fast download was interrupted mid-run (e.g. mobile tab killed
+            // in the background) before reaching the final save, which is
+            // exactly when a resume matters most. lastDate must always be
+            // pinned to the newest day in the full gap list (index 0) —
+            // the only day whose recency actually reflects "how current is
+            // this cache", regardless of how far the download has walked
+            // back through older days.
+            cache.lastDate = deepFmtDate(gapDays[0] || new Date());
             var chunkNumDone = Math.ceil(idx / DEEP_BATCH_SIZE) + _alreadySavedChunks;
             _deepShowProgress(idx, total, '\uD83D\uDCC2 Fast saving chunk ' + chunkNumDone + '/' + totalChunks + '...');
             var _payload = { lastDate: cache.lastDate, dailyMap: cache.dailyMap };
@@ -10815,10 +10951,35 @@ function nsBcRun() {
 var _dl2500LastRun = 0;
 var _DL2500_DEDUP_MS = 5 * 60 * 1000; // 5 min — long enough to cover DL-then-Analyze, short enough that a deliberate re-run (e.g. next day, same tab left open) still refreshes
 
+// BUG FIX: persisted once-per-day guard, separate from the session-level
+// one above. Step 0b/0c already correctly detect that the underlying NPS
+// and BAF caches are fresh and skip re-fetching them from the network —
+// but this function used to still unconditionally rebuild and re-trigger
+// a browser download of NPSData2500.json and BAFData2500.json every time
+// it ran, regardless of whether the cache data had actually changed. The
+// session guard above only prevents that within the SAME page session
+// (e.g. clicking DL then Analyze back-to-back); it resets to 0 on every
+// app restart. So: close the app, reopen it the same day, the very first
+// scan re-triggered two file-save prompts for data that was byte-for-byte
+// identical to what was already saved in the Downloads folder yesterday
+// — which is what looked like "why is it asking to save these again."
+// This key persists in localStorage (survives restarts) and is only
+// updated after a successful export, so it naturally still re-exports the
+// next calendar day, or immediately if the person explicitly clicks 🗑️
+// Restart / re-downloads fresh data that changes what's in the caches.
+var LD_DL2500_LAST_EXPORT_DATE_KEY = 'ld_dl2500_last_export_date';
+
 async function downloadNPSBAF2500(logFn) {
   var _log = logFn || function(m){ console.log('[DL-2500]', m); };
   if (Date.now() - _dl2500LastRun < _DL2500_DEDUP_MS) {
     _log('NPS + BAF 2500-day data already downloaded this session — skipping duplicate fetch');
+    return;
+  }
+  var _lastExportDate = null;
+  try { _lastExportDate = localStorage.getItem(LD_DL2500_LAST_EXPORT_DATE_KEY); } catch(e) {}
+  if (_lastExportDate && _lastExportDate === ldTodayIstStr()) {
+    _log('NPSData2500.json / BAFData2500.json already exported today (' + _lastExportDate + ') — skipping re-download. Use 🗑️ Restart or wait for tomorrow to force a fresh export.');
+    _dl2500LastRun = Date.now(); // also satisfies the session guard above for the rest of today
     return;
   }
   _dl2500LastRun = Date.now();
@@ -10994,6 +11155,11 @@ async function downloadNPSBAF2500(logFn) {
   };
   _dlJson(bafExport, 'BAFData2500.json');
   _log('BAFData2500.json downloaded — ' + Object.keys(bafResult).length + ' funds');
+
+  // Record today as the last successful export date so the persisted
+  // once-per-day guard above can skip re-downloading these same two files
+  // if the app is restarted later today.
+  try { localStorage.setItem(LD_DL2500_LAST_EXPORT_DATE_KEY, ldTodayIstStr()); } catch(e) {}
 
   return { nps: npsResult, baf: bafResult };
 }
